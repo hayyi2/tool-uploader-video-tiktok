@@ -1,0 +1,79 @@
+<md-dialog aria-label="input account" ng-class="dialog.css" class="uvt">
+    <md-toolbar class="md-menu-toolbar">
+        <div class="md-toolbar-tools">
+            <div flex class="md-title">
+                Select Account
+            </div>
+            <span flex></span>
+            <md-button class="md-icon-button" ng-click="close_dialog()">
+                <md-icon>close</md-icon>
+            </md-button>
+        </div>
+    </md-toolbar>
+
+    <md-dialog-content>
+        <div layout="row" class="md-padding" style="width: 400px">
+            <div flex>
+                <input ng-model="search_account" type="text" class="form-control" placeholder="Search account ..."
+                    md-autofocus />
+            </div>
+            <md-button class="md-icon-button" ng-click="load_accounts()"
+                style="margin: 0 0 0 6px; height: 24px; padding: 0 8px;">
+                <md-icon>refresh</md-icon>
+                <md-tooltip>Refresh</md-tooltip>
+            </md-button>
+        </div>
+        <md-table-container>
+            <table md-table class="md-table">
+                <tbody md-body class="selectable">
+                    <tr md-row ng-repeat="item in values(list_accounts) | filter:{loggenin: 1} | filter:search_account"
+                    ng-class="{'md-row-checked' : selected_video.account_id == item.id}">
+                        <td md-cell style="cursor: pointer;" ng-click="select_account(item)">
+                            <div layout="row" class="account-item" style="padding: 4px 2px 2px;">
+                                <div layout="row">
+                                    <div class="md-avatar no-select" layout-align="center center" layout="row"
+                                        ng-class="{'loggenin': item.loggenin > 0}">
+                                        <img ng-if="item.loggenin > 0 && item.account_picture"
+                                            img-fallback="item.account_picture" ng-src="{{ item.account_picture }}"
+                                            alt="" style="border-radius: 50%;">
+                                        <md-icon
+                                            ng-show="item.loggenin > 0 && !item.account_picture">how_to_reg</md-icon>
+                                        <md-icon ng-show="!item.loggenin || item.loggenin < 0">person</md-icon>
+                                    </div>
+                                </div>
+                                <div flex>
+                                    <div layout="row">
+                                        <div flex>
+                                            <h4>
+                                                <span ng-bind-html="item.name | highlight: search"></span>
+                                                <small ng-bind-html="item.account_name | highlight: search"
+                                                    class="md-warn"></small>
+                                                <small ng-show="item.account_username"
+                                                    ng-bind-html="'@' + item.account_username | highlight: search"
+                                                    class="md-warn"></small>
+                                            </h4>
+                                            <p class="text-muted" style="margin-bottom: 0; font-size: 13px;">
+                                                <span class="status"
+                                                    ng-class="item.loggenin > 0 ? (item.meta.affiliate ? 'status-success' : 'status-warning') : 'status-default'">
+                                                    <md-tooltip>{{ item.loggenin > 0 ? (item.meta.affiliate ?
+                                                        'Affiliate' : 'Non Affiliate') : 'Belum Login' }}</md-tooltip>
+                                                </span>
+                                                <small>Terakhir diperbarui: </small>
+                                                <small ng-show="item.last_check_at <= 0">
+                                                    {{ item.updated_at | timeAgo }}
+                                                </small>
+                                                <small ng-show="item.last_check_at > 0">
+                                                    {{ item.last_check_at | timeAgo }}
+                                                </small>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </md-table-container>
+    </md-dialog-content>
+</md-dialog>

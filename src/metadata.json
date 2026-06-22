@@ -1,0 +1,35 @@
+{
+    "id": "uploader_video_tiktok",
+    "name": "Uploader Video Tiktok",
+    "description": "Uploader Video Tiktok Affiliate",
+    "version": "0.1b1",
+    "author": "Qlobot Dev Team",
+    "_dev_settings": {
+        "auto_reload": true
+    },
+    "static_dir": "static",
+    "icons": {
+        "default": "static/assets/icon.png"
+    },
+    "pages": {
+        "accounts": {
+            "title": "manage accounts",
+            "template_file": "static/template/accounts.html"
+        },
+        "index": {
+            "title": "uploader videos",
+            "template_file": "static/template/uploader.html"
+        }
+    },
+    "main_ui_hooks": {
+        "js_lib_urls": [],
+        "js_script_urls": [
+            "/api/tool/uploader_video_tiktok/static/assets/accounts.js",
+            "/api/tool/uploader_video_tiktok/static/assets/uploader.js"
+        ],
+        "angular_modules": [],
+        "css_urls": [
+            "/api/tool/uploader_video_tiktok/static/assets/style.css"
+        ]
+    }
+}

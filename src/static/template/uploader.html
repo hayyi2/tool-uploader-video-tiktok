@@ -1,0 +1,531 @@
+<div class="site-content uvt" flex layout="row" ng-controller="UvtUploaderCtrl">
+    <div class="icon-navigation" layout="column">
+        <div ng-include="_static_url('template/components/menu.html')" ng-init="tool_id = _tool.id"></div>
+    </div>
+    <md-content flex layout="column">
+        <md-toolbar class="md-table-toolbar md-default" style="z-index: 10;">
+            <div class="md-toolbar-tools">
+                <div flex layout="row" layout-align="left center">
+                    <div class="title">
+                        Uploader Video
+                    </div>
+                    <span class="space-lq space-rq" style="color: #90A1B9; margin-bottom: 2px;">&mdash;</span>
+
+                    <div class="text-muted space-lq" ng-show="!current_project.id">Loading ...</div>
+                    <div class="select_project dropdown" aria-hidden="false" ng-show="current_project.id">
+                        <button layout="row" class="select_project_trigger dropdown-toggle" md-ink-ripple
+                            data-toggle="dropdown" aria-expanded="true">
+                            <div style="min-width:40px;text-align:left;">{{current_project.name}}&nbsp;</div>
+                            <md-icon style="color: #90A1B9;">arrow_drop_down</md-icon>
+                        </button>
+
+                        <ul class="dropdown-menu" style="border-radius: 4px;">
+                            <li class="project_name_menu" onclick="event.stopPropagation();">
+                                <label style="color: #777;font-weight: bold;font-size: 0.8em;">
+                                    Nama Project
+                                    <input class="project_name form-control" type="text" ng-model="current_project.name"
+                                        placeholder="Untitled Project #1"
+                                        ng-style="{'border-color': errors_current_project.name ? '#a94442' : '#ddd'}">
+                                </label>
+                                <div ng-show="errors_current_project.name">
+                                    <small class="text-danger">{{ errors_current_project.name }}</small>
+                                </div>
+                            </li>
+                            <li class="divider"></li>
+                            <li>
+                                <a href="#" ng-click="create_project($event)">
+                                    <md-icon class="md-small">add_circle_outline</md-icon>
+                                    Buat Project Baru
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" ng-click="delete_project($event, current_project)">
+                                    <md-icon class="md-small">delete</md-icon>
+                                    Hapus Project
+                                </a>
+                            </li>
+                            <li class="divider" ng-show="list_projects.length > 1"></li>
+                            <li
+                                ng-repeat="project in list_projects | filter:{id: '!' + current_project.id} | orderBy:'updated_at':true">
+                                <a href="#" ng-click="select_project($event, project)">
+                                    {{project.name}}
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <md-button class="md-icon-button" ng-click="add_folder()">
+                    <md-tooltip>Tambah Video dalam Folder</md-tooltip>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        class="icon icon-tabler icons-tabler-outline icon-tabler-folder-plus"
+                        style="color: rgba(0,0,0,.54);">
+                        <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+                        <path d="M12 19h-7a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2h4l3 3h7a2 2 0 0 1 2 2v3.5" />
+                        <path d="M16 19h6" />
+                        <path d="M19 16v6" />
+                    </svg>
+                </md-button>
+
+                <div class="space-r"></div>
+
+                <div layout-align="left stretch" style="width: 324px;padding-left: 7px;" layout="row">
+                    <div flex layout="row">
+                        <div flex layout="column">
+                            <md-button ng-disabled="!list_videos.length" ng-click="show_upload = !show_upload"
+                                ng-class="{'active': show_upload && list_videos.length > 0}"
+                                class="md-raised button-tab space-rq">
+                                <span>Upload Video</span>
+                            </md-button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <ng-csv-import hidden id="csv-input" content="csv.content" header="csv.header" separator="csv.separator"
+                result="csv.result" callback="csv.callback" accept=".csv"></ng-csv-import>
+
+        </md-toolbar>
+
+        <md-content flex layout="rows">
+            <section class="text-center" ng-if="!list_videos_resolved" flex layout="column">
+                <div class="site-status" flex layout="column" layout-align="center center">
+                    <p>Loading ...</p>
+                </div>
+            </section>
+            <section class="text-center" ng-if="list_videos_resolved && !list_videos.length" flex layout="column">
+                <div class="site-status" flex layout="column" layout-align="center center">
+                    <p>Video belum tersedia</p>
+                    <small>Silakan tambahkan terlebih dahulu</small>
+                    <div style="margin-top: 8px;">
+                        <button ng-click="add_folder()" class="btn btn-primary">Tambah dari Folder</button>
+                        <button ng-click="open_import_export_dialog()" class="btn btn-default">Import Videos</button>
+                    </div>
+                </div>
+            </section>
+
+            <md-content flex layout="column" ng-if="list_videos_resolved && list_videos.length > 0">
+                <md-table-container flex class="bg-white">
+                    <table md-table class="md-table table-header-sticky" style="position: static;">
+                        <thead md-head md-order="results_order">
+                            <tr md-row>
+                                <th md-column ng-show="show_chekcbox" width=1></th>
+                                <th md-column width=1>
+                                    <span ng-show="!results_order">No.</span>
+                                    <span ng-show="results_order" style="cursor: pointer;"
+                                        ng-click="results_order = null">
+                                        <md-icon style="line-height: 24px!important;">close</md-icon>
+                                        <md-tooltip>Cancel Sort</md-tooltip>
+                                    </span>
+                                </th>
+                                <th md-column width=1 style="z-index: 5;">
+                                    <span>Video</span>
+                                </th>
+                                <th md-column>
+                                    <span>Caption</span>
+                                </th>
+                                <th md-column>
+                                    <span>Account</span>
+                                </th>
+                                <th md-column>
+                                    <span>Showcase</span>
+                                </th>
+                                <th md-column md-order-by="uploade_at">
+                                    <span>Status</span>
+                                </th>
+                                <th md-column md-order-by="uploade_at">
+                                    <span>Uploaded</span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody md-body class="selectable">
+                            <tr md-row md-select="row"
+                                ng-repeat="item in list_videos | orderBy:results_order | filter:search | limitTo: query.limit : query.limit * (query.page-1)"
+                                ng-class="{'md-row-checked': show_chekcbox && item.checked}">
+                                <td md-cell ng-show="show_chekcbox" style="padding-right: 0!important; cursor: pointer;"
+                                    ng-click="item.checked = !item.checked">
+                                    <md-icon class="md-small" ng-class="{'text-primary': item.checked}">
+                                        {{!item.checked ? 'check_box_outline_blank' : 'check_box'}}
+                                    </md-icon>
+                                </td>
+                                <td md-cell>{{$index + 1 + ((query.page - 1) * query.limit)}}</td>
+                                <td md-cell>
+                                    <div layout="row">
+                                        <div ng-mouseover="video_over(item)" ng-mouseleave="video_leave(item)"
+                                            layout="row" style="padding-right: 10px;">
+                                            <div>
+                                                <div ng-if="item.video_path" style="position: relative;">
+                                                    <img ng-src="{{video_cover_url(item)}}" alt=""
+                                                        img-fallback="item.video_path" alt=""
+                                                        style="width: auto;max-width: 100px;max-height: 100px;z-index: 2; position: relative; border-radius: 4px;">
+                                                    <md-icon ng-show="!item.show_video"
+                                                        style="position: absolute;z-index: 3;left: calc(50% - 12px);top: calc(50% - 12px);color: #f1f1f1;">play_circle</md-icon>
+                                                    <md-icon ng-show="item.show_video"
+                                                        style="position: absolute;z-index: 3;left: calc(50% - 12px);top: calc(50% - 12px);color: white;">slow_motion_video</md-icon>
+                                                </div>
+                                                <div ng-if="!item.video_path" class="no-thumbnails-preview"
+                                                    style="border-radius: 4px;">
+                                                    <md-tooltip>Vide tidak memiliki preview thumb</md-tooltip>
+                                                    <md-icon>texture</md-icon>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <video ng-show="item.show_video" preload="metadata"
+                                                    ng-src="{{video_preview_url(item)}}" controls
+                                                    id="video{{ item.id }}"
+                                                    style="position: fixed;top: 50px;z-index: 1000;max-height: calc(100% - 100px);padding: 8px;background: white;border: 1px solid rgb(225, 225, 225);border-radius: 4px;box-shadow: 0 0 7px #ccc;"
+                                                    class="space-lh"></video>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div class="text-link-unfocus cell-long-text">
+                                                <a flex target="_blank" href="{{item.url}}"
+                                                    ng-bind-html="item.title | highlight:search.title"></a>
+                                            </div>
+                                            <div style="max-width: 300px;">
+                                                <small
+                                                    ng-bind-html="item.content.split('\n').slice(0, item.show_more ? none : 4).join('<br>')"
+                                                    class="text-muted"></small>
+                                                <a ng-show="item.content.split('\n').length > 4"
+                                                    ng-click="item.show_more = !item.show_more"
+                                                    style="color: inherit; cursor: pointer;" class="text-nowrap">
+                                                    <small>
+                                                        {{ item.show_more ? 'Sembunyikan' : 'Tampilkan Semua' }}
+                                                    </small>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td md-cell class="text-nowrap">
+                                    <textarea ng-change="save_video(item)" ng-model="item.caption" name="caption"
+                                        placeholder="Caption video ..." rows="5" class="form-control"
+                                        style="min-width: 200px;"></textarea>
+                                </td>
+                                <td md-cell class="text-nowrap">
+                                    <button ng-if="!item.account_id || !list_accounts[item.account_id]"
+                                        ng-click="open_select_account(item)" class="btn btn-default">
+                                        Select Account
+                                    </button>
+                                    <div ng-if="item.account_id && list_accounts[item.account_id]"
+                                        ng-click="open_select_account(item)" layout="row"
+                                        class="account-item change-account" style="padding: 4px 2px 2px;">
+                                        <div layout="row">
+                                            <div class="md-avatar no-select" layout-align="center center" layout="row"
+                                                ng-class="{'loggenin': list_accounts[item.account_id].loggenin > 0}">
+                                                <img ng-if="list_accounts[item.account_id].loggenin > 0 && list_accounts[item.account_id].account_picture"
+                                                    ng-src="{{ list_accounts[item.account_id].account_picture }}"
+                                                    img-fallback="list_accounts[item.account_id].account_picture" alt=""
+                                                    style="border-radius: 50%;">
+                                                <md-icon
+                                                    ng-show="list_accounts[item.account_id].loggenin > 0 && !list_accounts[item.account_id].account_picture">how_to_reg</md-icon>
+                                                <md-icon
+                                                    ng-show="!list_accounts[item.account_id].loggenin || list_accounts[item.account_id].loggenin < 0">person</md-icon>
+                                            </div>
+                                        </div>
+                                        <div flex>
+                                            <div layout="row">
+                                                <div flex>
+                                                    <h4>
+                                                        <span
+                                                            ng-bind-html="list_accounts[item.account_id].name | highlight: search"></span>
+                                                        <small
+                                                            ng-bind-html="list_accounts[item.account_id].account_name | highlight: search"
+                                                            class="md-warn"></small>
+                                                        <small ng-show="list_accounts[item.account_id].account_username"
+                                                            ng-bind-html="'@' + list_accounts[item.account_id].account_username | highlight: search"
+                                                            class="md-warn"></small>
+                                                    </h4>
+                                                    <p class="text-muted" style="margin-bottom: 0; font-size: 13px;">
+                                                        <span class="status"
+                                                            ng-class="list_accounts[item.account_id].loggenin > 0 ? (list_accounts[item.account_id].meta.affiliate ? 'status-success' : 'status-warning') : 'status-default'">
+                                                            <md-tooltip>
+                                                                {{ list_accounts[item.account_id].loggenin > 0 ?
+                                                                (list_accounts[item.account_id].meta.affiliate ?
+                                                                'Affiliate' : 'Non Affiliate') : 'Belum Login' }}
+                                                            </md-tooltip>
+                                                        </span>
+                                                        <small>Terakhir diperbarui: </small>
+                                                        <small
+                                                            ng-show="list_accounts[item.account_id].last_check_at <= 0">
+                                                            {{ list_accounts[item.account_id].updated_at | timeAgo }}
+                                                        </small>
+                                                        <small
+                                                            ng-show="list_accounts[item.account_id].last_check_at > 0">
+                                                            {{ list_accounts[item.account_id].last_check_at | timeAgo }}
+                                                        </small>
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <md-tooltip>Change Account</md-tooltip>
+                                    </div>
+                                </td>
+                                <td md-cell class="text-nowrap">
+                                    <div
+                                        ng-if="!item.account_id || !list_accounts[item.account_id] || !list_accounts[item.account_id].meta.affiliate">
+                                        <span class="text-muted">-</span>
+                                    </div>
+                                    <div
+                                        ng-if="item.account_id && list_accounts[item.account_id] && list_accounts[item.account_id].meta.affiliate">
+                                        <button ng-if="!item.showcase_ids || !item.showcase_ids.length"
+                                            ng-click="open_select_showcase(item)" class="btn btn-default">
+                                            Select Showcase
+                                        </button>
+                                        <div ng-if="item.showcase_ids && item.showcase_ids.length">
+                                            <table md-table class="md-table" style="margin-top: -6px;">
+                                                <tbody md-body class="selectable">
+                                                    <tr md-row ng-repeat="showcase_id in item.showcase_ids">
+                                                        <td md-cell style="padding: 5px 0 !important;">
+                                                            <div layout="row">
+                                                                <div class="space-rh">
+                                                                    <img ng-src="{{list_accounts[item.account_id].showcases[showcase_id].product_thumb}}"
+                                                                        img-fallback="list_accounts[item.account_id].showcases[showcase_id].product_thumb"
+                                                                        alt=""
+                                                                        style="width: auto;max-width: 50px;max-height: 50px; border-radius: 4px;">
+                                                                    <div ng-if="!list_accounts[item.account_id].showcases[showcase_id].product_thumb"
+                                                                        class="no-thumbnails-preview"
+                                                                        style="border-radius: 4px;">
+                                                                        <md-tooltip>Produk tidak memiliki
+                                                                            preview</md-tooltip>
+                                                                        <md-icon
+                                                                            style="width: 50px; height: 50px; font-size: 50px;">texture</md-icon>
+                                                                    </div>
+                                                                </div>
+                                                                <div
+                                                                    style="max-width: 320px;white-space: normal; min-width: 200px;">
+                                                                    {{
+                                                                    list_accounts[item.account_id].showcases[showcase_id].product_title
+                                                                    }}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                            <div style="padding: 5px 0;">
+                                                <a href="" class="text-muted" ng-click="open_select_showcase(item)">Edit
+                                                    Showcase</a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td md-cell class="text-nowrap">
+                                    <span class="badge" ng-class="{
+                                        'badge-warning': ['waiting', 'uploading'].includes(item.upload_status),
+                                        'badge-success': 'uploaded' == item.upload_status,
+                                        'badge-danger': ['cancel', 'failed'].includes(item.upload_status),
+                                    }">{{ item.upload_status }}</span>
+                                </td>
+                                <td md-cell class="text-nowrap">
+                                    <span ng-if="item.uploaded_at">{{ item.uploaded_at | timeAgo }}</span>
+                                    <span ng-if="!item.uploaded_at" class="text-muted">-</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </md-table-container>
+
+                <div layout="rows" ng-if="show_chekcbox"
+                    style="bottom: 40px; max-height: 40px;min-height: 40px;padding: 0 14px;font-size: 12px;color: rgba(0, 0, 0, .54);border-top: 1px rgba(0, 0, 0, .12) solid;">
+                    <div flex layout="row" layout-align="start center">
+                        <md-button ng-click="bulk_check_all()" class="md-small space-rh"
+                            style="padding: 0 6px; width: auto; min-width: auto;" layout="row">
+                            <md-icon class="md-small">
+                                {{ selected_count() == 0 ? 'check_box': 'indeterminate_check_box' }}
+                            </md-icon>
+                            <div style="padding-top: 1px;">
+                                {{ selected_count() == 0 ? 'Check All': 'Uncheck All' }}
+                            </div>
+                        </md-button>
+                        <md-button ng-click="bulk_check()" class="md-small space-rh"
+                            style="padding: 0 6px; width: auto; min-width: auto;" layout="row">
+                            <md-icon class="md-small">check_box</md-icon>
+                            <div style="padding-top: 1px;">Check</div>
+                        </md-button>
+                        <md-button ng-click="bulk_check(false)" class="md-small space-rh"
+                            style="padding: 0 6px; width: auto; min-width: auto;" layout="row">
+                            <md-icon class="md-small">indeterminate_check_box</md-icon>
+                            <div style="padding-top: 1px;">Uncheck</div>
+                        </md-button>
+                    </div>
+                    <div flex layout="row" layout-align="end center">
+                        <div class="text-muted" style="font-size: 12px; margin-top: 2px;">
+                            {{ selected_count() }} Selected
+                        </div>
+                        <div class="space-r"></div>
+                        <md-button ng-click="delete_selected()" class="md-small md-icon-button link-delete"
+                            ng-disabled="selected_count() == 0" style="padding: 0 6px; width: auto; min-width: auto;"
+                            layout="row">
+                            <md-icon class="md-small material-icons">delete_outline</md-icon>
+                            <div style="padding-top: 1px;">Delete</div>
+                        </md-button>
+                    </div>
+                </div>
+
+                <md-table-pagination ng-if="list_videos.length > 0" md-limit="query.limit"
+                    md-limit-options="query.limit_option" md-page="query.page" md-total="{{list_videos.length}}"
+                    md-page-select>
+                </md-table-pagination>
+
+                <div layout="row" layout-align="left center"
+                    style="position: absolute; bottom: 0; max-height: 40px;min-height: 40px; padding-left: 14px;">
+
+                    <div class="space-rh">
+                        <md-button ng-click="show_chekcbox = !show_chekcbox" class="md-small space-rh"
+                            style="padding: 0 6px; width: auto; min-width: auto;" layout="row">
+                            <md-icon class="md-small">{{ show_chekcbox ? 'close' : 'check_box_outline_blank'
+                                }}</md-icon>
+                            <div style="padding-top: 1px;">{{ show_chekcbox ? 'Hide Checkbox' : 'Show Checkbox' }}
+                            </div>
+                        </md-button>
+                    </div>
+                </div>
+            </md-content>
+
+            <div ng-show="show_upload && list_videos.length > 0" layout="column" class="site-navigation"
+                style="width: 354px;">
+                <div flex style="overflow-y: auto">
+                    <div class="site-navigation-content">
+                        <div class="site-navigation-title space-bh space-th" layout="row">Pilih Data & Sesuaikan</div>
+                        <div class="form-group">
+                            <label for="" class="control-label">Upload Data:</label>
+                            <select ng-model="upload_params.data_upload" class="form-control">
+                                <option value="{{ key }}" ng-repeat="(key, value) in data_upload_options">
+                                    {{ value }}
+                                </option>
+                            </select>
+                        </div>
+                        <div class="form-group" ng-show="upload_params.data_upload == 'count_per_account'">
+                            <label for="" class="control-label">Jumlah video per akun:</label>
+                            <div layout="row">
+                                <input type="number" ng-model="upload_params.count_per_account" class="form-control"
+                                    style="border-radius: 4px 0 0 4px;">
+                                <span class="form-control form-control-addon"
+                                    style="border-radius: 0 4px 4px 0;">Video</span>
+                            </div>
+                        </div>
+                    </div>
+                    <hr class="site-navigation-divider">
+                    <h5 class="site-navigation-header">Setting</h5>
+                    <div class="site-navigation-content">
+                        <div class="form-group">
+                            <label for="" class="control-label">Who can see this post</label>
+                            <select ng-model="upload_params.visibility" class="form-control">
+                                <option value="{{ key }}" ng-repeat="(key, value) in visibility_options">{{ value }}
+                                </option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="" class="control-label">Allow users to</label>
+                            <div layout="row">
+                                <div class="space-rq">
+                                    <div class="form-control checkbox" style="margin: 0">
+                                        <label>
+                                            <input type="checkbox" ng-model="upload_params.allow_comment"
+                                                class="ng-pristine ng-untouched ng-valid ng-empty" aria-invalid="false">
+                                            Comment
+                                        </label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="form-control checkbox" style="margin: 0">
+                                        <label>
+                                            <input type="checkbox" ng-model="upload_params.allow_reuse"
+                                                class="ng-pristine ng-untouched ng-valid ng-empty" aria-invalid="false">
+                                            Reuse of content
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="form-control checkbox" style="margin: 0">
+                                <label>
+                                    <input type="checkbox" ng-model="upload_params.disclose_content"
+                                        class="ng-pristine ng-untouched ng-valid ng-empty" aria-invalid="false">
+                                    Disclose post content
+                                </label>
+                            </div>
+                            <div class="space-tq" style="margin-left: 32px;" ng-show="upload_params.disclose_content">
+                                <div layout="row">
+                                    <div class="space-rq">
+                                        <div class="form-control checkbox" style="margin: 0">
+                                            <label>
+                                                <input type="checkbox" ng-model="upload_params.your_brand"
+                                                    class="ng-pristine ng-untouched ng-valid ng-empty" aria-invalid="false">
+                                                Your brand
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="form-control checkbox" style="margin: 0">
+                                            <label>
+                                                <input type="checkbox" ng-model="upload_params.branded_content"
+                                                    class="ng-pristine ng-untouched ng-valid ng-empty" aria-invalid="false">
+                                                Branded content
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="form-control checkbox" style="margin: 0">
+                                <label>
+                                    <input type="checkbox" ng-model="upload_params.aigc"
+                                        class="ng-pristine ng-untouched ng-valid ng-empty" aria-invalid="false">
+                                    AI-generated content
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <hr class="site-navigation-divider">
+                    <h5 class="site-navigation-header">Check</h5>
+                    <div class="site-navigation-content">
+                        <div class="form-group">
+                            <div class="form-control checkbox" style="margin: 0">
+                                <label>
+                                    <input type="checkbox" ng-model="upload_params.copyright"
+                                        class="ng-pristine ng-untouched ng-valid ng-empty" aria-invalid="false">
+                                    Music copyright check
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <div class="form-control checkbox" style="margin: 0">
+                                <label>
+                                    <input type="checkbox" ng-model="upload_params.content_check"
+                                        class="ng-pristine ng-untouched ng-valid ng-empty" aria-invalid="false">
+                                    Content check lite
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <hr class="site-navigation-divider">
+                    <h5 class="site-navigation-header">Upload</h5>
+                    <div class="site-navigation-content">
+                        <div class="form-group">
+                            <label for="" class="control-label">Delay Between</label>
+                            <div layout="row">
+                                <input flex ng-model="upload_params.delay_start" type="number"
+                                    class="form-control form-control-addon" style="border-radius: 4px 0 0 4px;">
+                                <span class="form-control form-control-addon" style="border-radius: 0;"> - </span>
+                                <input flex ng-model="upload_params.delay_end" type="number"
+                                    class="form-control form-control-addon" style="border-radius: 0;">
+                                <span class="form-control form-control-addon"
+                                    style="border-radius: 0 4px 4px 0;">Seconds</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="site-navigation-content site-navigation-action">
+                    <button class="btn btn-primary btn-block" ng-click="execute_upload_video()">Start Upload
+                        Video</button>
+                </div>
+            </div>
+        </md-content>
+    </md-content>
+</div>

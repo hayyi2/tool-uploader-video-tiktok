@@ -1,0 +1,146 @@
+<md-dialog aria-label="input showcase" ng-class="dialog.css" class="uvt">
+    <md-toolbar class="md-menu-toolbar">
+        <div class="md-toolbar-tools">
+            <div flex class="md-title">
+                Select Showcase
+            </div>
+            <span flex></span>
+            <md-button class="md-icon-button" ng-click="close_dialog()">
+                <md-icon>close</md-icon>
+            </md-button>
+        </div>
+    </md-toolbar>
+
+    <md-dialog-content>
+        <div layout="row" class="md-padding" style="width: 100%; min-width: 800px;">
+            <div flex class="account-item" layout-align="center center">
+                <div layout="row" class="showcase-item">
+                    <div layout="row">
+                        <div class="md-avatar no-select" layout-align="center center" layout="row"
+                            ng-class="{'loggenin': selected_account.loggenin > 0}">
+                            <img ng-if="selected_account.loggenin > 0 && selected_account.showcase_picture"
+                                img-fallback="selected_account.showcase_picture"
+                                ng-src="{{ selected_account.showcase_picture }}" alt="" style="border-radius: 50%;">
+                            <md-icon
+                                ng-show="selected_account.loggenin > 0 && !selected_account.showcase_picture">how_to_reg</md-icon>
+                            <md-icon
+                                ng-show="!selected_account.loggenin || selected_account.loggenin < 0">person</md-icon>
+                        </div>
+                    </div>
+                    <div flex>
+                        <div layout="row">
+                            <div flex>
+                                <h4>
+                                    <span ng-bind-html="selected_account.name | highlight: search"></span>
+                                    <small ng-bind-html="selected_account.showcase_name | highlight: search"
+                                        class="md-warn"></small>
+                                    <small ng-show="selected_account.showcase_username"
+                                        ng-bind-html="'@' + selected_account.showcase_username | highlight: search"
+                                        class="md-warn"></small>
+                                </h4>
+                                <p class="text-muted" style="margin-bottom: 0; font-size: 13px;">
+                                    <span class="status"
+                                        ng-class="selected_account.loggenin > 0 ? (selected_account.meta.affiliate ? 'status-success' : 'status-warning') : 'status-default'">
+                                        <md-tooltip>{{ selected_account.loggenin > 0 ?
+                                            (selected_account.meta.affiliate ?
+                                            'Affiliate' : 'Non Affiliate') : 'Belum Login' }}</md-tooltip>
+                                    </span>
+                                    <small>Terakhir diperbarui: </small>
+                                    <small ng-show="selected_account.last_check_at <= 0">
+                                        {{ selected_account.updated_at | timeAgo }}
+                                    </small>
+                                    <small ng-show="selected_account.last_check_at > 0">
+                                        {{ selected_account.last_check_at | timeAgo }}
+                                    </small>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div layout="column">
+                <div flex></div>
+                <div layout="row">
+                    <div>
+                        <input ng-model="search_showcase" type="text" class="form-control"
+                            placeholder="Search showcase ..." md-autofocus />
+                    </div>
+                    <md-button class="md-icon-button" ng-click="load_showcases()"
+                        style="margin: 0 0 0 6px; height: 24px; padding: 0 8px;">
+                        <md-icon>refresh</md-icon>
+                        <md-tooltip>Refresh</md-tooltip>
+                    </md-button>
+                </div>
+            </div>
+        </div>
+        <md-table-container>
+            <table md-table class="md-table" style="border-top: 1px solid #e1e1e1">
+                <thead md-head>
+                    <tr md-row>
+                        <th md-column width="1"></th>
+                        <th md-column>Product name</th>
+                        <th md-column>Product ID</th>
+                        <th md-column>Price</th>
+                        <th md-column>Stock</th>
+                        <th md-column>Commision</th>
+                        <th md-column width="1"></th>
+                    </tr>
+                </thead>
+                <tbody md-body class="selectable">
+                    <tr md-row
+                        ng-repeat="item in values(selected_account.showcases) | filter:{product_can_added: 1, product_stock: '!0'} | filter:search_showcase"
+                        ng-class="{'md-row-checked' : item.checked}" style="cursor: pointer;">
+                        <td md-cell ng-click="item.checked = !item.checked">
+                            <md-icon class="md-small ng-binding material-icons"
+                                ng-class="{'text-primary': item.checked}">
+                                {{!item.checked ? 'check_box_outline_blank' : 'check_box'}}
+                            </md-icon>
+                        </td>
+                        <td md-cell ng-click="item.checked = !item.checked">
+                            <div layout="row">
+                                <div class="space-rh">
+                                    <img ng-src="{{item.product_thumb}}" img-fallback="item.product_thumb" alt=""
+                                        style="width: auto;max-width: 50px;max-height: 50px; border-radius: 4px;">
+                                    <div ng-if="!item.product_thumb" class="no-thumbnails-preview"
+                                        style="border-radius: 4px;">
+                                        <md-tooltip>Produk tidak memiliki
+                                            preview</md-tooltip>
+                                        <md-icon style="width: 50px; height: 50px; font-size: 50px;">texture</md-icon>
+                                    </div>
+                                </div>
+                                <div style="max-width: 320px;white-space: normal;">
+                                    {{ item.product_title }}
+                                </div>
+                            </div>
+                        </td>
+                        <td md-cell ng-click="item.checked = !item.checked">
+                            {{ item.product_id }}
+                        </td>
+                        <td md-cell ng-click="item.checked = !item.checked">
+                            {{ item.product_price| currency:'Rp ':0 }}
+                        </td>
+                        <td md-cell ng-click="item.checked = !item.checked">
+                            {{ item.product_stock }}
+                        </td>
+                        <td md-cell ng-click="item.checked = !item.checked">
+                            {{ item.product_commission| currency:'Rp ':0 }}
+                        </td>
+                        <td md-cell>
+                            <a href="{{ item.product_url }}" target="_blank" rel="noopener noreferrer"
+                                class="text-muted">Open</a>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </md-table-container>
+    </md-dialog-content>
+    <md-dialog-actions layout="row" class="md-padding layout-row" style="border-top: 1px solid #e1e1e1">
+        <span flex></span>
+        <button type="button" ng-click="close_dialog()" class="btn btn-default space-rq">
+            Cancel
+        </button>
+        <button type="submit" class="btn btn-primary" ng-disabled="is_loading" ng-click="save_showcase()">
+            Save Change
+        </button>
+    </md-dialog-actions>
+</md-dialog>

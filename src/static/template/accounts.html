@@ -1,0 +1,194 @@
+<div class="site-content uvt" flex layout="row" ng-controller="UvtAccountsCtrl">
+    <div class="icon-navigation" layout="column">
+        <div ng-include="_static_url('template/components/menu.html')" ng-init="tool_id = _tool.id"></div>
+    </div>
+    <md-content flex layout="column">
+        <md-toolbar class="md-table-toolbar md-default">
+            <div class="md-toolbar-tools">
+                <div flex layout="row">
+                    <div flex class="title">Manage Accounts</div>
+                </div>
+                <div style="max-width: 640px; width: 100%" layout="row">
+                    <div flex style="position: relative">
+                        <md-icon class="clear-field" ng-show="search" ng-click="search = ''"
+                            style="margin-top: .25rem;">close</md-icon>
+                        <input type="text" class="form-control md-toolbar-input" autofocus=""
+                            placeholder="Search accounts ..." esc-key="search = ''" ng-model="search" />
+                    </div>
+                </div>
+                <div flex layout="row">
+                    <div flex></div>
+                    <div layout="column" layout-align="center center" style="padding: 8px; margin: 0 8px; width: 32px">
+                        <md-progress-circular ng-show="is_loading" md-mode="indeterminate" md-diameter="16px" />
+                    </div>
+                    <!-- <md-button ng-click="load_data()" ng-show="!is_loading" aria-label="reload" class="md-icon-button">
+                        <md-icon>refresh</md-icon>
+                        <md-tooltip>Reload Data</md-tooltip>
+                    </md-button> -->
+                    <md-button ng-click="open_input_account_dialog()" aria-label="addAccount">
+                        <md-icon>person_add</md-icon>
+                        <span>Tambah Account</span>
+                        <!-- <md-tooltip>Tambah Account</md-tooltip> -->
+                    </md-button>
+                    <md-button ng-click="toggle_show_checkbox()" aria-label="reload" class="md-icon-button">
+                        <md-icon>checklist</md-icon>
+                        <md-tooltip>Show Select</md-tooltip>
+                    </md-button>
+                </div>
+            </div>
+        </md-toolbar>
+        <!-- checkbox -->
+        <div ng-show="show_checkbox" layout="row" layout-align="center center"
+            style="background: rgb(255 245 219);border-bottom: 1px solid rgba(0, 0, 0, 0.1);">
+            <div layout="row" layout-align="center center" style="max-width: 640px; width: 100%">
+                <md-button ng-click="check_all()" style="margin-right: 0; min-width: auto">
+                    <md-icon>check_box</md-icon>
+                    <md-tooltip>Check All</md-tooltip>
+                </md-button>
+                <md-button ng-click="check_all(false)" style="margin-left: 0; margin-right: 0; min-width: auto">
+                    <md-icon>indeterminate_check_box</md-icon>
+                    <md-tooltip>Uncheck All</md-tooltip>
+                </md-button>
+                <div class="space-lh">
+                    <small class="text-muted">
+                        {{ get_checked_count() }}
+                        Dipilih dari {{ list_account.length }} Stream accounts
+                    </small>
+                </div>
+                <div flex layout="row" layout-align="end center">
+                    <md-button ng-show="get_checked_count() > 0" ng-click="autologin_selected_account()"
+                        style="margin-left: 0; margin-right: 0">
+                        <md-icon>login</md-icon>
+                        <span style="text-transform: none">Auto Login</span>
+                    </md-button>
+                    <md-button ng-show="get_checked_count() > 0" ng-click="delete_selected_account()"
+                        class="md-icon-button" style="margin-left: 0; margin-right: 0">
+                        <md-icon>delete_outline</md-icon>
+                        <md-tooltip>Delete Account</md-tooltip>
+                    </md-button>
+                    <md-button ng-click="toggle_show_checkbox()" class="md-icon-button space-l"
+                        style="margin-left: 0 !important">
+                        <md-icon>close</md-icon>
+                        <md-tooltip>Cancel Selection</md-tooltip>
+                    </md-button>
+                </div>
+            </div>
+        </div>
+        <!-- list account -->
+        <md-content flex>
+            <div style="max-width: 640px; width: 100%; margin: 0 auto" class="space-b space-t">
+                <div class="site-status" ng-show="!list_account_resolved">
+                    <div style="margin-top: 60px"></div>
+                    <small>Loading ...</small>
+                </div>
+
+                <div class="site-status" ng-show="list_account_resolved && !list_account.length">
+                    <div style="margin-top: 60px"></div>
+                    <p>Account belum tersedia</p>
+                    <small>Silakan tambahkan terlebih dahulu</small>
+                    <div style="margin-top: 8px;">
+                        <button ng-click="open_input_account_dialog()" class="btn btn-primary">Tambah Account</button>
+                    </div>
+                </div>
+
+                <md-card ng-show="list_account_resolved && list_account.length" class="relative md-padding account-item"
+                    ng-repeat="(i, item) in list_account | filter: search" ng-click="check(item)">
+                    <div layout="row">
+                        <div ng-show="show_checkbox" class="text-muted space-rh no-select" style="margin-top: 6px">
+                            <md-icon>
+                                {{ item.checked ? 'check_box' : 'check_box_outline_blank' }}
+                            </md-icon>
+                        </div>
+                        <div layout="row">
+                            <div class="md-avatar no-select" layout-align="center center" layout="row"
+                                ng-class="{'loggenin': item.loggenin > 0}">
+                                <img ng-if="item.loggenin > 0 && item.account_picture"
+                                    ng-src="{{ item.account_picture }}" img-fallback="item.account_picture" alt=""
+                                    style="border-radius: 50%;">
+                                <md-icon ng-show="item.loggenin > 0 && !item.account_picture">how_to_reg</md-icon>
+                                <md-icon ng-show="!item.loggenin || item.loggenin < 0">person</md-icon>
+                            </div>
+                        </div>
+                        <div flex>
+                            <div layout="row">
+                                <div flex>
+                                    <h4>
+                                        <span ng-bind-html="item.name | highlight: search"></span>
+                                        <small ng-bind-html="item.account_name | highlight: search"
+                                            class="md-warn"></small>
+                                        <small ng-show="item.account_username"
+                                            ng-bind-html="'@' + item.account_username | highlight: search"
+                                            class="md-warn"></small>
+                                    </h4>
+                                    <p class="text-muted" style="margin-bottom: 0; font-size: 13px;">
+                                        <span class="status"
+                                            ng-class="item.loggenin > 0 ? (item.meta.affiliate ? 'status-success' : 'status-warning') : 'status-default'">
+                                            <md-tooltip>{{ item.loggenin > 0 ? (item.meta.affiliate ? 'Affiliate' : 'Non
+                                                Affiliate') : 'Belum Login' }}</md-tooltip>
+                                        </span>
+                                        <small>Terakhir diperbarui: </small>
+                                        <small ng-show="item.last_check_at <= 0">
+                                            {{ item.updated_at | timeAgo }}
+                                        </small>
+                                        <small ng-show="item.last_check_at > 0">
+                                            {{ item.last_check_at | timeAgo }}
+                                        </small>
+                                    </p>
+                                </div>
+                                <div class="space-lq">
+                                    <div>
+                                        <md-button ng-show="item.loggenin <= 0" ng-click="autologin_account(item)"
+                                            class="md-icon-button">
+                                            <md-icon>login</md-icon>
+                                            <md-tooltip>Auto login</md-tooltip>
+                                        </md-button>
+                                        <md-button ng-show="item.loggenin > 0" ng-click="refresh_account(item)"
+                                            class="md-icon-button">
+                                            <md-icon>refresh</md-icon>
+                                            <md-tooltip>Refresh</md-tooltip>
+                                        </md-button>
+
+                                        <md-menu md-position-mode="target-right target" style="margin: auto;">
+                                            <md-button class="md-icon-button " ng-disabled="false" aria-label="Lainnya"
+                                                ng-click="openMenu($mdOpenMenu, $event)">
+                                                <md-icon class="">more_horizontal</md-icon>
+                                                <md-tooltip>Tindakan Lainnya</md-tooltip>
+                                            </md-button>
+                                            <md-menu-content class="md-dense" width="3" height="20"
+                                                style="max-height: none;">
+                                                <md-menu-item ng-show="item.loggenin <= 0">
+                                                    <md-button ng-click="refresh_account(item)"
+                                                        aria-label="openAccountDialog"
+                                                        style="line-height: 32px; min-height: 32px;">
+                                                        <md-icon>refresh</md-icon>
+                                                        Refresh Account
+                                                    </md-button>
+                                                </md-menu-item>
+                                                <md-menu-item>
+                                                    <md-button ng-click="open_input_account_dialog(item)"
+                                                        aria-label="openAccountDialog"
+                                                        style="line-height: 32px; min-height: 32px;">
+                                                        <md-icon>edit</md-icon>
+                                                        Edit Account
+                                                    </md-button>
+                                                </md-menu-item>
+                                                <md-menu-item>
+                                                    <md-button ng-click="delete_account(item)"
+                                                        aria-label="deleteAccount"
+                                                        style="line-height: 32px; min-height: 32px;">
+                                                        <md-icon>delete_outline</md-icon>
+                                                        Delete Account
+                                                    </md-button>
+                                                </md-menu-item>
+                                            </md-menu-content>
+                                        </md-menu>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </md-card>
+            </div>
+        </md-content>
+    </md-content>
+</div>

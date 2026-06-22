@@ -1,0 +1,11 @@
+
+# Auto generated files
+dist/*
+temp/*
+.vscode/*
+
+# python cache
+__pycache__
+*.pyc
+
+*.log
