@@ -1,0 +1,37 @@
+<md-dialog aria-label="input account" ng-class="dialog.css" class="uvt">
+    <form ng-submit="save_bulk_schedule()">
+        <md-toolbar class="md-menu-toolbar">
+            <div class="md-toolbar-tools">
+                <div flex class="md-title">
+                    Set Schedule
+                </div>
+                <span flex></span>
+                <md-button class="md-icon-button" ng-click="close_dialog()">
+                    <md-icon>close</md-icon>
+                </md-button>
+            </div>
+        </md-toolbar>
+
+        <md-dialog-content>
+            <div ng-if="error_message" class="alert alert-danger space-xb">
+                {{ error_message }}
+            </div>
+            <div layout="column" class="md-padding" style="width: 400px">
+                <div class="form-group">
+                    <label for="" class="control-label">Schedule</label>
+                    <input type="datetime-local" ng-model="input_schedule" ng-attr-min="{{ min_schedule | date:'yyyy-MM-ddTHH:mm' }}" class="form-control">
+                </div>
+            </div>
+        </md-dialog-content>
+
+        <md-dialog-actions layout="row" class="md-padding layout-row" style="border-top: 1px solid #e1e1e1">
+            <span flex></span>
+            <button type="button" ng-click="close_dialog()" class="btn btn-default space-rq">
+                Cancel
+            </button>
+            <button type="submit" class="btn btn-primary" ng-disabled="is_loading">
+                Save Change
+            </button>
+        </md-dialog-actions>
+    </form>
+</md-dialog>

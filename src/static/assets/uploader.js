@@ -5,7 +5,7 @@ $('.select_project').on('shown.bs.dropdown', function () {
         console.log(">> event", event);
     });
 });
-app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDialog, $mdEditDialog, $http, $q, $filter, $sce, util, toast) {
+app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDialog, $http, $q, $filter, $sce, util, toast) {
     $scope.list_projects = null;
     $scope.current_project = {};
     $scope.errors_current_project = {};
@@ -49,6 +49,13 @@ app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDia
         delay_start: 20,
         delay_end: 30,
     };
+    $scope.min_schedule = (new Date()).toISOString()
+
+    // util
+    this.openMenu = function($mdOpenMenu, ev){
+        originatorEv = ev;
+        $mdOpenMenu(ev);
+    };
 
     $scope.$watch('upload_params.data_upload', function (newValue, oldValue) {
         if (newValue != oldValue && newValue == 'checked_video') {
@@ -56,7 +63,7 @@ app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDia
         }
     }, true);
 
-    $scope.values = (data) => Object.values(data);
+    $scope.values = (data) => data ? Object.values(data) : [];
     $scope.close_dialog = function () {
         $mdDialog.cancel();
     };
@@ -206,10 +213,12 @@ app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDia
             }
             // video = video.map($scope.sort_data_video);
             video.forEach((item) => {
-                $scope.list_videos[video_index[item.id]] = {
+                let update_data = {
                     ...$scope.list_videos[video_index[item.id]],
                     ...item,
-                };
+                }
+                update_data.schedule = new Date(update_data.schedule)
+                $scope.list_videos[video_index[item.id]] = update_data;
             });
             $scope.$apply();
         },
@@ -249,6 +258,10 @@ app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDia
             .then(function (res) {
                 $scope.list_videos = res.data.data;
                 $scope.list_videos_resolved = true;
+                $scope.list_videos = $scope.list_videos.map((item) => {
+                    item.schedule = new Date(item.schedule);
+                    return item;
+                })
 
                 // $scope.open_select_account($scope.list_videos[0]);
                 // $scope.open_select_showcase($scope.list_videos[0]);
@@ -308,6 +321,13 @@ app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDia
     $scope.selected_count = function () {
         return $scope.list_videos.map(item => item.checked).filter(item => item).length;
     };
+    $scope.can_bulk_change_showcase = function () {
+        const account_ids = $scope.list_videos.filter(item => item.checked).map(item => item.account_id)
+        if (new Set(account_ids).size !== 1) {
+            return false
+        }
+        return $scope.list_accounts[account_ids[0]].meta.affiliate;
+    };
     $scope.bulk_check_all = function () {
         check = $scope.selected_count() == 0;
         for (let index = 0; index < $scope.list_videos.length; index++) {
@@ -365,10 +385,23 @@ app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDia
     };
 
     $scope.select_account = (account) => {
-        $scope.save_video({
-            id: $scope.selected_video.id,
-            account_id: account.id,
-        });
+        if ($scope.selected_video.id) {
+            $scope.save_video({
+                id: $scope.selected_video.id,
+                account_id: account.id,
+            });
+        } else {
+            let pid = $scope.current_project.id;
+            const video_ids = $scope.list_videos
+                .filter(i => i.checked)
+                .map(i => i.id);
+            $http.post($scope._action_url(`video/${pid}/bulk_update`), {
+                ids: video_ids,
+                data: {
+                    account_id: account.id,
+                }
+            });
+        }
         $scope.close_dialog();
         $scope.selected_video = null;
     };
@@ -389,15 +422,70 @@ app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDia
     $scope.save_showcase = () => {
         let pid = $scope.current_project.id;
         const showcase_ids = Object.values($scope.selected_account.showcases).filter(i => i.checked).map(i => i.id);
-        $http.post($scope._action_url(`video/${pid}/update`), {
-            id: $scope.selected_video.id,
-            showcase_ids: showcase_ids,
-        });
+        if ($scope.selected_video.id) {
+            $http.post($scope._action_url(`video/${pid}/update`), {
+                id: $scope.selected_video.id,
+                showcase_ids: showcase_ids,
+            });
+        } else {
+            const video_ids = $scope.list_videos
+                .filter(i => i.checked)
+                .map(i => i.id);
+            $http.post($scope._action_url(`video/${pid}/bulk_update`), {
+                ids: video_ids,
+                data: {
+                    showcase_ids: showcase_ids,
+                }
+            });
+        }
         $scope.close_dialog();
         $scope.selected_video = null;
         $scope.selected_account = null;
     };
 
+    $scope.open_bulk_select_account = () => {
+        $scope.selected_video = {};
+        $mdDialog.show({
+            clickOutsideToClose: true,
+            templateUrl: $scope._static_url('template/dialog/account_select.html'),
+            preserveScope: true,
+            scope: $scope,
+        });
+    };
+    $scope.open_bulk_select_showcase = () => {
+        $scope.selected_video = {};
+        const videos = $scope.list_videos.filter(i => i.checked);
+        $scope.selected_account = $scope.list_accounts[videos[0].account_id];
+        $mdDialog.show({
+            clickOutsideToClose: true,
+            templateUrl: $scope._static_url('template/dialog/showcase_select.html'),
+            preserveScope: true,
+            scope: $scope,
+        });
+    };
+
+    $scope.open_bulk_schedule = () => {
+        $scope.input_schedule = null;
+        $mdDialog.show({
+            clickOutsideToClose: true,
+            templateUrl: $scope._static_url('template/dialog/bulk_schedule_input.html'),
+            preserveScope: true,
+            scope: $scope,
+        });
+    };
+    $scope.save_bulk_schedule = () => {
+        let pid = $scope.current_project.id;
+        const video_ids = $scope.list_videos
+            .filter(i => i.checked)
+            .map(i => i.id);
+        $http.post($scope._action_url(`video/${pid}/bulk_update`), {
+            ids: video_ids,
+            data: {
+                schedule: $scope.input_schedule ?? '',
+            }
+        });
+        $scope.close_dialog();
+    };
 
     // video preview
 

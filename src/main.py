@@ -11,6 +11,8 @@ import random
 import time
 from pyquery import PyQuery
 from typing import Optional
+import calendar
+from datetime import datetime, timedelta
 # import struct
 import subprocess
 import uuid
@@ -270,6 +272,11 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
         autologin = TiktokMain(self)
         account = video['account']
 
+        try:
+            account['password'] = qlobot_api.decrypt(account['password'])
+        except:  # noqa
+            pass
+
         is_login = autologin.login(account['username'], account['password'])
 
         if not is_login:
@@ -390,14 +397,22 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
 
                 add_product_selector = '[data-e2e="anchor_container"] button'
                 self.driver.get_element(add_product_selector).click()
-                time.sleep(random.randint(2, 9)/10)
+                time.sleep(random.randint(9, 19)/10)
 
                 self.driver.wait_element_exist('.anchor-modal', 5)
                 # common-modal-width--compact
 
+                add_product_selector = '.TUXSelect-button'
+                self.driver.get_element(add_product_selector).click()
+                time.sleep(random.randint(9, 19)/10)
+
+                add_product_selector = '.TUXSelect-menuOption'
+                self.driver.get_element(add_product_selector).click()
+                time.sleep(random.randint(9, 19)/10)
+
                 add_product_selector = '.anchor-modal [class$="--primary"]'
                 self.driver.get_element(add_product_selector).click()
-                time.sleep(random.randint(2, 9)/10)
+                time.sleep(random.randint(9, 19)/10)
 
                 container_selector = '.product-selector-modal'
                 self.driver.wait_element_exist(container_selector, 5)
@@ -405,9 +420,27 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
                 self.driver.execute_script("document.querySelector('.product-selector-modal')?.classList.remove('common-modal-width--compact');")  # noqa
                 time.sleep(random.randint(2, 5)/10)
 
+                close_selector = '.common-modal-footer [class$="--secondary"]'
+                self.driver.wait_element_exist(close_selector, 5)
                 search_selector = container_selector + \
                     ' .product-search-input input[type="text"]'
+                self.driver.wait_element_exist(search_selector, 5)
                 search_el = self.driver.get_element(search_selector)
+                if not search_el:
+                    showcase_tab_selector = '.product-search-bar button[id="2"]'  # noqa
+                    showcase_tab_el = self.driver.get_element(
+                        showcase_tab_selector
+                    )
+                    if showcase_tab_el:
+                        showcase_tab_el.click()
+                        time.sleep(random.randint(9, 19)/10)
+                        self.driver.wait_element_exist(search_selector, 5)
+                        search_el = self.driver.get_element(search_selector)
+                if not search_el:
+                    self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif')  # noqa
+                    self.driver.get_element(close_selector).click()
+                    time.sleep(random.randint(2, 9)/10)
+                    continue
                 search_el.click()
                 time.sleep(random.randint(2, 5)/10)
                 search_el.send_keys(Keys.CONTROL, "a")
@@ -420,7 +453,6 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
                 product_select_selector = container_selector + \
                     ' .product-table input[type="radio"]:not([disabled])'
                 self.driver.wait_element_exist(product_select_selector, 5)
-                close_selector = '.common-modal-footer [class$="--secondary"]'
 
                 product_select_el = self.driver.get_element(
                     product_select_selector
@@ -462,6 +494,77 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
             self.log('- Finish')
 
         self.log('Input Settings')
+
+        schedule = video.get('schedule')
+        if schedule:
+            dt = datetime.fromisoformat(schedule.replace("Z", "+00:00")).astimezone()
+            # print('dt', dt)
+            # pembulatan 5 menit
+            discard = timedelta(minutes=dt.minute % 5, seconds=dt.second, microseconds=dt.microsecond)
+            dt -= discard
+            if discard >= timedelta(minutes=2.5):
+                dt += timedelta(minutes=5)
+            # print('dt', dt)
+
+            current_dt = datetime.now(dt.tzinfo)
+
+            year = current_dt.year + (current_dt.month // 12)
+            month = current_dt.month % 12 + 1
+            day = min(current_dt.day, calendar.monthrange(year, month)[1])
+            max_dt = current_dt.replace(year=year, month=month, day=day)
+
+            if dt > (current_dt) + timedelta(minutes=15) and dt < max_dt:
+                schedule_selector = '[data-e2e="schedule_container"]'
+                schedule_el = self.driver.get_element(schedule_selector)
+                self.driver.execute_script("arguments[0].scrollIntoView();", schedule_el)
+                time.sleep(random.randint(2, 9)/10)
+                schedule_selector = 'label:has([name="postSchedule"]):nth-child(2)'
+                schedule_el = self.driver.get_element(schedule_selector)
+                schedule_el.click()
+                time.sleep(random.randint(2, 9)/10)
+
+                input_selector = '.scheduled-picker>div:nth-child(1) input'
+                input_el = self.driver.get_element(input_selector)
+                input_el.click()
+                time.sleep(random.randint(2, 9)/10)
+
+                h = dt.hour + 1
+                # print('h', h)
+                input_selector = f'.tiktok-timepicker-time-picker-container>div:nth-child(2) .tiktok-timepicker-option-item:nth-child({h}) .tiktok-timepicker-option-text'
+                # print('sel', input_selector)
+                input_el = self.driver.get_element(input_selector)
+                self.driver.execute_script("arguments[0].click();", input_el)
+                time.sleep(random.randint(2, 9)/10)
+
+                m = int(dt.minute / 5) + 1
+                # print('m', m)
+                input_selector = f'.tiktok-timepicker-time-picker-container>div:nth-child(3) .tiktok-timepicker-option-item:nth-child({m}) .tiktok-timepicker-option-text'
+                # print('sel', input_selector)
+                input_el = self.driver.get_element(input_selector)
+                self.driver.execute_script("arguments[0].click();", input_el)
+                time.sleep(random.randint(2, 9)/10)
+
+                input_selector = '.scheduled-picker>div:nth-child(2) input'
+                input_el = self.driver.get_element(input_selector)
+                input_el.click()
+                time.sleep(random.randint(2, 9)/10)
+
+                calendar_el = self.driver.get_element('.calendar-wrapper')
+                self.driver.execute_script("arguments[0].scrollIntoView();", calendar_el)
+                diff_month = (dt.year - current_dt.year) * 12 + (dt.month - current_dt.month)
+                # print('diff_month', diff_month)
+                for _ in range(diff_month):
+                    # print('click next')
+                    next_el = self.driver.get_element('.month-header-wrapper .arrow:last-child')
+                    self.driver.execute_script("arguments[0].click();", next_el)
+                    time.sleep(random.randint(2, 9)/10)
+
+                d = dt.day
+                # print('d', d)
+                self.driver.execute_script(f"Array.from(document.querySelectorAll('.day.valid')).filter(el => el.textContent == '{d}').forEach(el => el.click())")
+                time.sleep(random.randint(2, 9)/10)
+            else:
+                self.log('Skip schadule: invalid date schadule')
 
         visibility = params.get('visibility').replace('_', ' ')
         visibility_selector = '[data-e2e="video_visibility_container"] button'
@@ -633,6 +736,7 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
             time.sleep(random.randint(2, 9)/10)
 
         self.log('- Finish')
+        # raise Exception('Test le...')
         # self.wait_user_response()
 
         self.log('Click Publish')
@@ -747,7 +851,25 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
                 f"username: {video['account']['username']}"
             )
 
-            self.do_upload_video(video, params)
+            try:
+                self.do_upload_video(video, params)
+                self.log('Success Upload')
+            except Exception as e:
+                self.log('Failed Upload')
+                VideoModel.update({
+                    'id': video['id'],
+                    'upload_status': 'failed',
+                })
+                self.ws_broadcast('edit_videos', [VideoModel.get_by_id(video['id'])])
+                logger.error(
+                    f"Error upload video: {e}"
+                    f"\n---\n{traceback.format_exc()}\n---"
+                )
+                if self.dev_env:
+                    self.log(
+                        f"Error upload video: {e}"
+                        f"\n---\n{traceback.format_exc()}\n---"
+                    )
 
             delay = random.randint(params['delay_start'], params['delay_end'])
             if videos_len < _i + 1:
@@ -1373,10 +1495,37 @@ class VideoHandler(ActionHandler):
         if params.get('showcase_ids'):
             VideoModel.update_showcase(params)
         else:
-            VideoModel.update({**video, **params})
+            udate_data = {**video, **params}
+            if not udate_data['schedule']:
+                udate_data['schedule'] = ''
+            VideoModel.update(udate_data)
         self.ws_broadcast(
             'edit_videos', [VideoModel.get_by_id(params.get('id'))]
         )
+
+        return self.webhandler.json_output({
+            "success": True,
+        })
+
+    def action_bulk_update(self):
+        params = self.webhandler.json_body()
+        if type(params.get('ids')) is not list or not params.get('ids') or not params.get('data'):
+            return self.webhandler.json_output({
+                "success": False,
+                "message": "Invalid args."
+            })
+
+        update_data = params.get('data')
+        videos = VideoModel.gets_ids(params.get('ids'))
+        if update_data.get('showcase_ids'):
+            for video in videos:
+                VideoModel.update_showcase({'id': video['id'], **update_data})
+        else:
+            for video in videos:
+                VideoModel.update({'id': video['id'], **update_data})
+
+        videos = VideoModel.gets_ids(params.get('ids'))
+        self.ws_broadcast('edit_videos', videos)
 
         return self.webhandler.json_output({
             "success": True,

@@ -1,4 +1,4 @@
-<div class="site-content uvt" flex layout="row" ng-controller="UvtUploaderCtrl">
+<div class="site-content uvt" flex layout="row" ng-controller="UvtUploaderCtrl as ctrl">
     <div class="icon-navigation" layout="column">
         <div ng-include="_static_url('template/components/menu.html')" ng-init="tool_id = _tool.id"></div>
     </div>
@@ -129,6 +129,9 @@
                                     <span>Account</span>
                                 </th>
                                 <th md-column>
+                                    <span>Schedule</span>
+                                </th>
+                                <th md-column>
                                     <span>Showcase</span>
                                 </th>
                                 <th md-column md-order-by="uploade_at">
@@ -200,7 +203,7 @@
                                     </div>
                                 </td>
                                 <td md-cell class="text-nowrap">
-                                    <textarea ng-change="save_video(item)" ng-model="item.caption" name="caption"
+                                    <textarea ng-blur="save_video(item)" ng-model="item.caption" name="caption"
                                         placeholder="Caption video ..." rows="5" class="form-control"
                                         style="min-width: 200px;"></textarea>
                                 </td>
@@ -262,6 +265,9 @@
                                         </div>
                                         <md-tooltip>Change Account</md-tooltip>
                                     </div>
+                                </td>
+                                <td md-cell class="text-nowrap">
+                                    <input type="datetime-local" ng-change="save_video(item)" ng-model="item.schedule" ng-attr-min="{{ min_schedule | date:'yyyy-MM-ddTHH:mm' }}" class="form-control">
                                 </td>
                                 <td md-cell class="text-nowrap">
                                     <div
@@ -350,10 +356,64 @@
                             <md-icon class="md-small">indeterminate_check_box</md-icon>
                             <div style="padding-top: 1px;">Uncheck</div>
                         </md-button>
-                    </div>
-                    <div flex layout="row" layout-align="end center">
+                        <span class="space-rh"></span>
                         <div class="text-muted" style="font-size: 12px; margin-top: 2px;">
                             {{ selected_count() }} Selected
+                        </div>
+                        <md-button ng-click="()"
+                            ng-disabled="selected_count() == 0" class="md-small space-rh"
+                            style="padding: 0 6px; width: auto; min-width: auto;" layout="row">
+                            <md-icon class="md-small"></md-icon>
+                            <div style="padding-top: 1px;"></div>
+                        </md-button>
+                        <md-button ng-click="()"
+                            ng-disabled="selected_count() == 0" class="md-small space-rh"
+                            style="padding: 0 6px; width: auto; min-width: auto;" layout="row">
+                            <md-icon class="md-small"></md-icon>
+                            <div style="padding-top: 1px;"></div>
+                        </md-button>
+                        <md-button ng-click="()" class="md-small space-rh"
+                            style="padding: 0 6px; width: auto; min-width: auto;" layout="row">
+                            <md-icon class="md-small"></md-icon>
+                            <div style="padding-top: 1px;"></div>
+                        </md-button>
+                    </div>
+                    <div flex layout="row" layout-align="end center">
+                        <div>
+                            <md-menu md-position-mode="target-right target" style="margin: auto;">
+                                <md-button class="md-small"
+                                    ng-disabled="false" aria-label="Lainnya" ng-click="ctrl.openMenu($mdOpenMenu, $event)"
+                                    style="padding: 0 6px; min-width: auto; width: auto;">
+                                    <md-icon class="md-small">more_horizontal</md-icon>
+                                    Bulk Action
+                                </md-button>
+                                <md-menu-content class="md-dense" width="3" height="20" style="max-height: none;">
+                                    <md-menu-item>
+                                        <md-button ng-click="open_bulk_select_account()"
+                                            ng-disabled="selected_count() == 0" 
+                                            style="line-height: 32px; min-height: 32px;">
+                                            <md-icon>person</md-icon>
+                                            Bulk Set Account
+                                        </md-button>
+                                    </md-menu-item>
+                                    <md-menu-item>
+                                        <md-button ng-click="open_bulk_schedule()"
+                                            ng-disabled="selected_count() == 0" 
+                                            style="line-height: 32px; min-height: 32px;">
+                                            <md-icon>timer</md-icon>
+                                            Bulk Set Schedule
+                                        </md-button>
+                                    </md-menu-item>
+                                    <md-menu-item>
+                                        <md-button ng-click="open_bulk_select_showcase()"
+                                            ng-disabled="!can_bulk_change_showcase()"
+                                            style="line-height: 32px; min-height: 32px;">
+                                            <md-icon>shopping_bag</md-icon>
+                                            Bulk Set Showcase
+                                        </md-button>
+                                    </md-menu-item>
+                                </md-menu-content>
+                            </md-menu>
                         </div>
                         <div class="space-r"></div>
                         <md-button ng-click="delete_selected()" class="md-small md-icon-button link-delete"

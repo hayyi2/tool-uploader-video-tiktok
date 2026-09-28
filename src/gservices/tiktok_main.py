@@ -4,6 +4,9 @@ import traceback
 import random
 from requests.models import Response
 
+from selenium.webdriver.common.action_chains import ActionChains  # type: ignore
+from selenium.webdriver.common.keys import Keys  # type: ignore
+
 from qlobot.marketplace.__base__ import Marketplace, LoginStatus, RequestStatus
 # from .__base__ import Marketplace, LoginStatus, RequestStatus
 
@@ -190,7 +193,7 @@ class TiktokMain(Marketplace):
             (i_login_action, _login_action) = driver.wait_elements_exist([
                 button_login_selector,
                 is_login_selector,
-            ], 5)
+            ], 15)
 
             if i_login_action == -1:
                 self._process.log("Login trigger error", 'failed')
@@ -210,14 +213,27 @@ class TiktokMain(Marketplace):
                 except:  # noqa
                     time.sleep(random.randint(9, 19)/10)
             driver.wait_element_exist("#loginContainer", 5)
-            login_use_username_selector = '#loginContainer [class*="DivLoginOptionContainer"]>div>div>div:nth-child(2) [data-e2e="channel-item"]'  # noqa
-            driver.get_element(login_use_username_selector).click()
+            (i_login_btn, _login_btn) = driver.wait_elements_exist([
+                '#loginContainer [class*="DivLoginOptionContainer"]>div>div>div:nth-child(2) [data-e2e="channel-item"]',
+                '#loginContainer [class*="DivLoginOptionContainer"]>div:nth-child(2) [data-e2e="channel-item"]',
+            ], 5)
+            if i_login_btn == -1:
+                self._logger.error(f"Login {self.name} Trigger Error![1.1]")
+                self.save_driver_cookies()
+                return False
+
+            _login_btn.click()
             time.sleep(random.randint(9, 19)/10)
 
             # note: hanya bisa login menggunakan username atau email
-            login_use_username_selector = '[href="/login/phone-or-email/email"]'  # noqa
-            driver.wait_element_exist(login_use_username_selector, 5)
-            driver.get_element(login_use_username_selector).click()
+            (i_login_btn, _login_btn) = driver.wait_elements_exist([
+                '[href="/login/phone-or-email/email"]',
+                '[data-testid="tux-segmented-control"]>div:nth-child(3) [data-testid="tux-segment-item"]',
+            ], 5)
+            if i_login_btn == -1:
+                self._logger.error(f"Login {self.name} Trigger Error![1.2]")
+
+            _login_btn.click()
             time.sleep(random.randint(9, 19)/10)
 
             # input username
@@ -234,8 +250,8 @@ class TiktokMain(Marketplace):
                 driver.get_element(password_selector).send_keys(password)
                 time.sleep(random.randint(9, 19)/10)
 
-                submit_button_selector = '[data-e2e="login-button"]'
-                driver.get_element(submit_button_selector).click()
+                action = ActionChains(driver)
+                action.send_keys(Keys.ENTER).perform()
                 time.sleep(random.randint(9, 19)/10)
             else:
                 messages = [

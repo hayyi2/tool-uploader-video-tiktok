@@ -712,6 +712,7 @@ class VideoModel(BaseModel):
         'project_id': 0,
         'video_path': '',
         'caption': '',
+        'schedule': '',
         'upload_status': 'pending',
         'uploaded_at': 0,
     }
@@ -730,6 +731,38 @@ class VideoModel(BaseModel):
         # pending, waiting, uploading, uploaded, cancel, failed
         "uploaded_at INTEGER DEFAULT 0 NOT NULL",
     ]
+
+    @classmethod
+    def setup(cls):
+        if not cls.is_table_exists():
+            cls.install()
+        if not cls.is_schedule_exists():
+            cls.add_schedule_column()
+
+    @classmethod
+    def is_schedule_exists(cls):
+        column_installed = False
+
+        with Connection() as db_cursor:
+            db_cursor.execute(
+                "SELECT count(*) > 0 as jumlah " +
+                "FROM pragma_table_info('" + cls._table_name + "') " +
+                "WHERE name='{}';".format("schedule")
+            )
+
+            row = db_cursor.fetchone()
+            column_installed = row["jumlah"]
+
+        return True if column_installed > 0 else False
+
+    @classmethod
+    def add_schedule_column(cls):
+        with Connection() as db_cursor:
+            db_cursor.execute(
+                "ALTER TABLE " + cls._table_name + " ADD COLUMN " +
+                "schedule TEXT DEFAULT \"\" NOT NULL"
+            )
+        return True
 
     @classmethod
     def update_showcase(cls, video):
