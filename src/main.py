@@ -1,4 +1,5 @@
 import os
+import shutil
 import re
 import sys
 import json
@@ -16,12 +17,12 @@ from datetime import datetime, timedelta
 # import struct
 import subprocess
 import uuid
-from selenium.webdriver.common.keys import Keys
 
 import qlobot_api
 from qlobot.configs import APPDATA_PATH
 from .gservices.tiktok_main import TiktokMain, LoginStatus
 from .database import setup_database, AccountModel, ProjectModel, VideoModel
+from .chrome import Chrome, ChromeOptions
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,11 @@ _PACKAGE_LIST = {
         'type': 'exe',
         'version': '2024-02-04-git-7375a6ca7b-full',
         'download_url': 'https://dl.dropboxusercontent.com/scl/fi/ugj3vs5bxwr3r6p4xymqj/ffmpeg.zip?rlkey=maciomuckiu9sgas25rcv9g5m&st=0no5sleh&dl=0',  # noqa
+    },
+    'pychrome': {
+        'type': 'package',  # package | exe
+        'version': '0.2.4',
+        'download_url': 'https://docs.google.com/uc?export=download&id=1U5JjdFUClhIWdzaYEg-OPJ_fmImgazFo',
     },
 }
 
@@ -196,52 +202,34 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
     name = "Upload Video Tiktok"
     dev_env = False
 
+    main_url = "https://www.tiktok.com/"
+    upload_url = 'https://www.tiktok.com/tiktokstudio/upload?from=webapp'
+    upload_file_selector = 'input[type="file"][accept="video/*"]'
+
     driver = None
+    chrome = None
+    user_data_dir = ''
 
-    def close_driver(self):
-        if self.driver:
-            self.driver.close()
-            self.driver = None
+    video_status = {}
 
-    def get_response_network_log(self, path_startswith):
-        if type(path_startswith) is str:
-            path_startswith = [path_startswith]
-        request_id = ""
-        try:
-            logs = self.driver.get_log('performance')
-            for log in logs:
-                network_log = json.loads(log["message"])["message"]
+    def _get_chrome(self):
+        if self.chrome is None:
+            user_data_dir = f"profile--{self.tool_id}-{self._id}"
+            self.user_data_dir = os.path.join(qlobot_api.TEMP_PATH, user_data_dir)
+            options = ChromeOptions()
+            options.start_url = self.main_url
+            options.user_data_dir = self.user_data_dir
+            options.port = 9240 + int(self._id)
+            self.chrome = Chrome(options)
+            self.chrome.network_enable()
+        return self.chrome
 
-                if (
-                    "request" in network_log["params"]
-                    and "requestId" in network_log["params"]
-                    and "url" in network_log["params"]["request"]
-                ):
-                    for path_url in path_startswith:
-                        if path_url in network_log["params"]["request"]['url']:
-                            # print(
-                            #     "url::",
-                            #     network_log["params"]["request"]['url'],
-                            # )
-                            request_id = network_log["params"]["requestId"]
-                            break
-            if request_id:
-                # print("request_id", request_id)
-                for _ in range(0, 25):
-                    response = self.driver.execute_cdp_cmd(
-                        'Network.getResponseBody', {'requestId': request_id}
-                    )
-                    if 'body' in response:
-                        # print("request_id", _, request_id)
-                        return json.loads(response['body'])
-                    time.sleep(0.1)
-        except Exception as e:  # noqa
-            print(f'error capture: {e}')
-            pass
+    def _sleep(self, a=2, b=9):
+        time.sleep(random.randint(a, b) / 10)
 
-    def get_latest_video(self, autologin):
+    def _get_latest_video(self):
         url_videos = 'https://www.tiktok.com/tiktok/creator/manage/item_list/v1/'  # noqa
-        res_videos = autologin.post_request(
+        res_videos = self.autologin.post_request(
             url=url_videos,
             json={
                 "cursor": 0,
@@ -253,250 +241,219 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
                 }
             },
         )
-        # print('res_videos', res_videos)
-        # print('res_videos_data', res_videos.json())
+        print('res_videos', res_videos)
+        print('res_videos_data', res_videos.json())
         res_videos_data = res_videos.json()
         list_video = res_videos_data.get('item_list', [])
         return list_video[0] if list_video else {}
 
-    def do_upload_video(self, video, params):
-        # set status uploading
-        VideoModel.update({
+    def _mark_status(self, video, status, adt_data={}):
+        self.video_status[video['id']] = status
+        payload = {
             'id': video['id'],
-            'upload_status': 'uploading',
-        })
-        self.ws_broadcast(
-            'edit_videos', [VideoModel.get_by_id(video['id'])]
-        )
+            'upload_status': status,
+            **adt_data,
+        }
+        VideoModel.update(payload)
+        self.ws_broadcast('edit_videos', [payload])
 
-        autologin = TiktokMain(self)
+    # stage upload
+
+    def _stage_login(self, video):
         account = video['account']
-
         try:
             account['password'] = qlobot_api.decrypt(account['password'])
-        except:  # noqa
+        except Exception:
             pass
 
-        is_login = autologin.login(account['username'], account['password'])
-
+        is_login = self.autologin.login(account['username'], account['password'])
         if not is_login:
-            self.log('Skip: Failed login')
-            self.reports['skiped'] += 1
-            VideoModel.update({
-                'id': video['id'],
-                'upload_status': 'cancel',
-            })
-            self.ws_broadcast(
-                'edit_videos', [VideoModel.get_by_id(video['id'])]
-            )
-            return
+            raise qlobot_api.ProcessExecption('Gagal login')
 
-        latest_video = self.get_latest_video(autologin)
-        latest_video_id = latest_video.get('item_id')
+        self._close_driver()
+        return account
 
-        # self.log('latest_video_id', latest_video_id)
-        # raise qlobot_api.ProcessExecption('Test le ...')
+    def _stage_prepare_upload_page(self):
+        self.log('Buka Halaman Upload')
 
-        upload_url = 'https://www.tiktok.com/tiktokstudio/upload?from=webapp'
-        autologin.load_driver(
-            username=account['username'],
-            target_url=upload_url,
-            driver_params={
-                'capture_network_logs': True,
-            }
-        )
+        chrome = self._get_chrome()
+        chrome.clear_data()
+        chrome.load_cookies(self.autologin._get_cookie_identity_name())
 
-        # upload video
-        if self.driver.current_url != upload_url:
-            self.driver.get(upload_url)
+        chrome.navigate(self.upload_url)
+        chrome.wait_loading(timeout=15)
+        self._sleep()
 
-        # print('video', json.dumps(video, indent=4))
-        # print('video_file_exist', os.path.isfile(video['path']))
+        if not chrome.wait_element_exist(self.upload_file_selector, 15):
+            raise qlobot_api.ProcessExecption('Halaman upload gagal dimuat')
+        self._sleep()
 
+        self.log('- Finish')
+
+    def _stage_upload_file(self, video):
         self.log('Upload file video')
 
-        upload_selector = 'input[type="file"][accept="video/*"]'
-        # upload_selector = '[data-e2e="select_video_container"]'
-        self.driver.wait_element_exist(upload_selector, 15)
-        time.sleep(random.randint(2, 9)/10)
-
-        upload_el = self.driver.get_element(
-            upload_selector
+        chrome = self._get_chrome()
+        chrome.execute_script_void(
+            f"var el = document.querySelector(`{self.upload_file_selector}`);"
+            "if (el) {"
+            " el.removeAttribute('hidden');"
+            " el.style.visibility = 'visible';"
+            " el.style.display = 'block';"
+            "}"
         )
-        self.driver.execute_script("""
-            arguments[0].removeAttribute('hidden');
-            arguments[0].style.visibility = 'visible';
-            arguments[0].style.display = 'block';
-        """, upload_el)
-        time.sleep(random.randint(2, 9)/10)
-        upload_el.send_keys(os.path.abspath(video['video_path']))
+        abs_video_path = os.path.abspath(video['video_path'])
+        if not chrome.upload_file(self.upload_file_selector, abs_video_path):
+            raise qlobot_api.ProcessExecption('Gagal upload video')
 
-        # upload_el.click()
-        # t = threading.Thread(
-        #     target=handle_open_dialog, args=(video['path'],))
-        # t.daemon = True
-        # t.start()
-        # t.join(timeout=30)
-
+        upload_done_selector = '[data-e2e="upload_status_container"] .info-status.success'
+        upload_modal_close_selector = '.common-modal .common-modal-close-icon'
         for _ in range(0, 5):
-            (i_uploaded, el_uploaded) = (
-                self.driver.wait_elements_exist([
-                    '[data-e2e="upload_status_container"] .info-status.success',  # noqa
-                    '.common-modal .common-modal-close-icon',
-                ], 5)
-            )
-            if i_uploaded == 1:
-                self.log('- Success upload file')
+            i_uploaded = chrome.wait_elements_exist([
+                upload_done_selector,  # noqa
+                upload_modal_close_selector,
+            ], 5)
+            if i_uploaded == 0:
                 break
-            if i_uploaded in [1, 2]:
-                el_uploaded.click()
-                time.sleep(random.randint(2, 9)/10)
+            if i_uploaded == 1:
+                chrome.click_element(upload_modal_close_selector)
+                self._sleep()
 
+        self.log('- Finish')
+        return True
+
+    def _stage_input_caption(self, video):
         self.log('Input Caption')
 
+        chrome = self._get_chrome()
+
         # close modal
-        modal_close_el = self.driver.get_element(
-            '.common-modal .common-modal-close-icon'
-        )
-        if modal_close_el:
-            modal_close_el.click()
-            time.sleep(random.randint(2, 9)/10)
+        if chrome.is_element_exist('.common-modal .common-modal-close-icon'):
+            chrome.click_element('.common-modal .common-modal-close-icon')
+            self._sleep()
 
         # close tutorial
         for _ in range(0, 3):
-            tutorial_close_el = self.driver.get_element(
-                '.tutorial-tooltip button'
-            )
-            if tutorial_close_el:
-                tutorial_close_el.click()
-                time.sleep(random.randint(2, 9)/10)
+            if chrome.is_element_exist('.tutorial-tooltip button'):
+                chrome.click_element('.tutorial-tooltip button')
+                self._sleep()
             else:
                 break
 
         caption_selector = '.caption-editor [contenteditable]'
-        caption_el = self.driver.get_element(caption_selector)
-        self.driver.execute_script(
-            "arguments[0].scrollIntoView();",
-            caption_el
-        )
-        caption_el.click()
+        chrome.scroll_into_view(caption_selector)
         time.sleep(random.randint(2, 5)/10)
-        caption_el.send_keys(Keys.CONTROL, "a")
-        time.sleep(random.randint(2, 5)/10)
-        caption_el.send_keys(Keys.DELETE)
-        time.sleep(random.randint(2, 5)/10)
-        caption_el.send_keys(video['caption'])
-        time.sleep(random.randint(2, 9)/10)
+        chrome.set_contenteditable_text(
+            caption_selector, video.get('caption') or '')
+        self._sleep()
 
         self.log('- Finish')
 
-        if account['meta']['affiliate'] and video['showcase']:
-            self.log('Input Showcase')
-            for showcase in video['showcase']:
-                self.log(f'- Add showcase: {showcase["product_title"]}')
+    def _stage_input_showcase(self, account, video):
+        if not (account['meta']['affiliate'] and video['showcase']):
+            return
 
-                add_product_selector = '[data-e2e="anchor_container"] button'
-                self.driver.get_element(add_product_selector).click()
-                time.sleep(random.randint(9, 19)/10)
+        self.log('Input Showcase')
 
-                self.driver.wait_element_exist('.anchor-modal', 5)
-                # common-modal-width--compact
+        chrome = self._get_chrome()
 
-                add_product_selector = '.TUXSelect-button'
-                self.driver.get_element(add_product_selector).click()
-                time.sleep(random.randint(9, 19)/10)
+        for showcase in video['showcase']:
+            self.log(f'- Add showcase: {showcase["product_title"]}')
 
-                add_product_selector = '.TUXSelect-menuOption'
-                self.driver.get_element(add_product_selector).click()
-                time.sleep(random.randint(9, 19)/10)
+            add_product_selector = '[data-e2e="anchor_container"] button'
+            chrome.click_element(add_product_selector)
+            time.sleep(random.randint(9, 19)/10)
 
-                add_product_selector = '.anchor-modal [class$="--primary"]'
-                self.driver.get_element(add_product_selector).click()
-                time.sleep(random.randint(9, 19)/10)
+            chrome.wait_element_exist('.anchor-modal', 5)
+            # common-modal-width--compact
 
-                container_selector = '.product-selector-modal'
-                self.driver.wait_element_exist(container_selector, 5)
+            add_product_selector = '.TUXSelect-button'
+            chrome.click_element(add_product_selector)
+            time.sleep(random.randint(9, 19)/10)
 
-                self.driver.execute_script("document.querySelector('.product-selector-modal')?.classList.remove('common-modal-width--compact');")  # noqa
-                time.sleep(random.randint(2, 5)/10)
+            add_product_selector = '.TUXSelect-menuOption'
+            chrome.click_element(add_product_selector)
+            time.sleep(random.randint(9, 19)/10)
 
-                close_selector = '.common-modal-footer [class$="--secondary"]'
-                self.driver.wait_element_exist(close_selector, 5)
-                search_selector = container_selector + \
-                    ' .product-search-input input[type="text"]'
-                self.driver.wait_element_exist(search_selector, 5)
-                search_el = self.driver.get_element(search_selector)
-                if not search_el:
-                    showcase_tab_selector = '.product-search-bar button[id="2"]'  # noqa
-                    showcase_tab_el = self.driver.get_element(
-                        showcase_tab_selector
-                    )
-                    if showcase_tab_el:
-                        showcase_tab_el.click()
-                        time.sleep(random.randint(9, 19)/10)
-                        self.driver.wait_element_exist(search_selector, 5)
-                        search_el = self.driver.get_element(search_selector)
-                if not search_el:
-                    self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif')  # noqa
-                    self.driver.get_element(close_selector).click()
-                    time.sleep(random.randint(2, 9)/10)
-                    continue
-                search_el.click()
-                time.sleep(random.randint(2, 5)/10)
-                search_el.send_keys(Keys.CONTROL, "a")
-                time.sleep(random.randint(2, 5)/10)
-                search_el.send_keys(showcase['product_id'])
-                time.sleep(random.randint(2, 5)/10)
-                search_el.send_keys(Keys.ENTER)
-                time.sleep(random.randint(9, 19)/10)
+            add_product_selector = '.anchor-modal [class$="--primary"]'
+            chrome.click_element(add_product_selector)
+            time.sleep(random.randint(9, 19)/10)
 
-                product_select_selector = container_selector + \
-                    ' .product-table input[type="radio"]:not([disabled])'
-                self.driver.wait_element_exist(product_select_selector, 5)
+            container_selector = '.product-selector-modal'
+            chrome.wait_element_exist(container_selector, 5)
 
-                product_select_el = self.driver.get_element(
-                    product_select_selector
-                )
-                if not product_select_el:
-                    self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif')  # noqa
-                    self.driver.get_element(close_selector).click()
-                    time.sleep(random.randint(2, 9)/10)
-                    continue
+            chrome.execute_script_void("document.querySelector('.product-selector-modal')?.classList.remove('common-modal-width--compact');")  # noqa
+            time.sleep(random.randint(2, 5)/10)
 
-                product_select_el.click()
-                time.sleep(random.randint(9, 19)/10)
+            close_selector = '.common-modal-footer [class$="--secondary"]'
+            chrome.wait_element_exist(close_selector, 5)
+            search_selector = container_selector + \
+                ' .product-search-input input[type="text"]'
+            chrome.wait_element_exist(search_selector, 5)
+            search_found = chrome.is_element_exist(search_selector)
+            if not search_found:
+                showcase_tab_selector = '.product-search-bar button[id="2"]'  # noqa
+                if chrome.is_element_exist(showcase_tab_selector):
+                    chrome.click_element(showcase_tab_selector)
+                    time.sleep(random.randint(9, 19)/10)
+                    chrome.wait_element_exist(search_selector, 5)
+                    search_found = chrome.is_element_exist(search_selector)
+            if not search_found:
+                self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif')  # noqa
+                chrome.click_element(close_selector)
+                time.sleep(random.randint(2, 9)/10)
+                continue
+            chrome.fill_input(search_selector, showcase['product_id'])
+            time.sleep(random.randint(2, 5)/10)
+            chrome.press_enter()
+            time.sleep(random.randint(9, 19)/10)
 
-                self.driver.wait_element_exist(close_selector, 5)
-                submit_selector = '.common-modal-footer [class$="--primary"]:not([disabled])'  # noqa
-                submit_el = self.driver.get_element(submit_selector)
-                if not submit_el:
-                    self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif.')  # noqa
-                    self.driver.get_element(close_selector).click()
-                    time.sleep(random.randint(2, 9)/10)
-                    continue
+            product_select_selector = container_selector + \
+                ' .product-table input[type="radio"]:not([disabled])'
+            chrome.wait_element_exist(product_select_selector, 5)
 
-                submit_el.click()
-                time.sleep(random.randint(9, 19)/10)
+            if not chrome.is_element_exist(product_select_selector):
+                self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif')  # noqa
+                chrome.click_element(close_selector)
+                time.sleep(random.randint(2, 9)/10)
+                continue
 
-                self.driver.wait_element_exist(close_selector, 5)
-                submit_selector = '.common-modal-footer [class$="--primary"]:not([disabled])'  # noqa
-                submit_el = self.driver.get_element(submit_selector)
-                if not submit_el:
-                    self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif..')  # noqa
-                    self.driver.get_element(close_selector).click()
-                    time.sleep(random.randint(2, 9)/10)
-                    continue
+            chrome.click_element(product_select_selector)
+            time.sleep(random.randint(9, 19)/10)
 
-                submit_el.click()
-                time.sleep(random.randint(9, 19)/10)
-                self.log('- Success')
+            chrome.wait_element_exist(close_selector, 5)
+            submit_selector = '.common-modal-footer [class$="--primary"]:not([disabled])'  # noqa
+            if not chrome.is_element_exist(submit_selector):
+                self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif.')  # noqa
+                chrome.click_element(close_selector)
+                time.sleep(random.randint(2, 9)/10)
+                continue
 
-            self.log('- Finish')
+            chrome.click_element(submit_selector)
+            time.sleep(random.randint(9, 19)/10)
 
+            chrome.wait_element_exist(close_selector, 5)
+            submit_selector = '.common-modal-footer [class$="--primary"]:not([disabled])'  # noqa
+            if not chrome.is_element_exist(submit_selector):
+                self.log('- Skip add showcase: product tidak ditemukan atau tidak aktif..')  # noqa
+                chrome.click_element(close_selector)
+                time.sleep(random.randint(2, 9)/10)
+                continue
+
+            chrome.click_element(submit_selector)
+            time.sleep(random.randint(9, 19)/10)
+            self.log('- Success')
+
+        self.log('- Finish')
+
+    def _stage_input_settings(self, video, params):
         self.log('Input Settings')
+
+        chrome = self._get_chrome()
 
         schedule = video.get('schedule')
         if schedule:
+            self.log('- Set Schedule')
             dt = datetime.fromisoformat(schedule.replace("Z", "+00:00")).astimezone()
             # print('dt', dt)
             # pembulatan 5 menit
@@ -515,118 +472,108 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
 
             if dt > (current_dt) + timedelta(minutes=15) and dt < max_dt:
                 schedule_selector = '[data-e2e="schedule_container"]'
-                schedule_el = self.driver.get_element(schedule_selector)
-                self.driver.execute_script("arguments[0].scrollIntoView();", schedule_el)
+                chrome.scroll_into_view(schedule_selector)
                 time.sleep(random.randint(2, 9)/10)
-                schedule_selector = 'label:has([name="postSchedule"]):nth-child(2)'
-                schedule_el = self.driver.get_element(schedule_selector)
-                schedule_el.click()
+                schedule_selector = 'label:has([name="postSchedule"]):nth-child(2)'  # noqa
+                chrome.click_element(schedule_selector)
                 time.sleep(random.randint(2, 9)/10)
 
                 input_selector = '.scheduled-picker>div:nth-child(1) input'
-                input_el = self.driver.get_element(input_selector)
-                input_el.click()
+                chrome.click_element(input_selector)
                 time.sleep(random.randint(2, 9)/10)
 
                 h = dt.hour + 1
                 # print('h', h)
-                input_selector = f'.tiktok-timepicker-time-picker-container>div:nth-child(2) .tiktok-timepicker-option-item:nth-child({h}) .tiktok-timepicker-option-text'
+                input_selector = f'.tiktok-timepicker-time-picker-container>div:nth-child(2) .tiktok-timepicker-option-item:nth-child({h}) .tiktok-timepicker-option-text'  # noqa
                 # print('sel', input_selector)
-                input_el = self.driver.get_element(input_selector)
-                self.driver.execute_script("arguments[0].click();", input_el)
+                chrome.execute_script_void(
+                    "document.querySelector(`" + input_selector + "`)?.click();"  # noqa
+                )
                 time.sleep(random.randint(2, 9)/10)
 
                 m = int(dt.minute / 5) + 1
                 # print('m', m)
-                input_selector = f'.tiktok-timepicker-time-picker-container>div:nth-child(3) .tiktok-timepicker-option-item:nth-child({m}) .tiktok-timepicker-option-text'
+                input_selector = f'.tiktok-timepicker-time-picker-container>div:nth-child(3) .tiktok-timepicker-option-item:nth-child({m}) .tiktok-timepicker-option-text'  # noqa
                 # print('sel', input_selector)
-                input_el = self.driver.get_element(input_selector)
-                self.driver.execute_script("arguments[0].click();", input_el)
+                chrome.execute_script_void(
+                    "document.querySelector(`" + input_selector + "`)?.click();"  # noqa
+                )
                 time.sleep(random.randint(2, 9)/10)
 
                 input_selector = '.scheduled-picker>div:nth-child(2) input'
-                input_el = self.driver.get_element(input_selector)
-                input_el.click()
+                chrome.click_element(input_selector)
                 time.sleep(random.randint(2, 9)/10)
 
-                calendar_el = self.driver.get_element('.calendar-wrapper')
-                self.driver.execute_script("arguments[0].scrollIntoView();", calendar_el)
-                diff_month = (dt.year - current_dt.year) * 12 + (dt.month - current_dt.month)
+                chrome.scroll_into_view('.calendar-wrapper')
+                diff_month = (dt.year - current_dt.year) * 12 + (dt.month - current_dt.month)  # noqa
                 # print('diff_month', diff_month)
                 for _ in range(diff_month):
                     # print('click next')
-                    next_el = self.driver.get_element('.month-header-wrapper .arrow:last-child')
-                    self.driver.execute_script("arguments[0].click();", next_el)
+                    chrome.execute_script_void(
+                        "document.querySelector('.month-header-wrapper .arrow:last-child')?.click();"  # noqa
+                    )
                     time.sleep(random.randint(2, 9)/10)
 
                 d = dt.day
                 # print('d', d)
-                self.driver.execute_script(f"Array.from(document.querySelectorAll('.day.valid')).filter(el => el.textContent == '{d}').forEach(el => el.click())")
+                chrome.execute_script_void(f"Array.from(document.querySelectorAll('.day.valid')).filter(el => el.textContent == '{d}').forEach(el => el.click())")  # noqa
                 time.sleep(random.randint(2, 9)/10)
             else:
                 self.log('Skip schadule: invalid date schadule')
 
         visibility = params.get('visibility').replace('_', ' ')
         visibility_selector = '[data-e2e="video_visibility_container"] button'
-        visibility_el = self.driver.get_element(visibility_selector)
-        if visibility_el.text.strip().lower() != visibility:
-            visibility_el.click()
+        visibility_text = chrome.get_text(visibility_selector).strip().lower()
+        if visibility_text != visibility:
+            self.log('- Set visibility')
+            chrome.click_element(visibility_selector)
             time.sleep(random.randint(2, 9)/10)
             opt_selector = '.Select__content [role="option"]:nth-child(3)'
             if visibility == 'everyone':
                 opt_selector = '.Select__content [role="option"]:nth-child(1)'
             if visibility == 'friends':
                 opt_selector = '.Select__content [role="option"]:nth-child(2)'
-            option_el = self.driver.get_element(opt_selector)
-            option_el.click()
+            chrome.click_element(opt_selector)
             time.sleep(random.randint(2, 9)/10)
 
         show_more_selector = '[data-e2e="advanced_settings_container"]'
-        show_more_el = self.driver.get_element(show_more_selector)
-        show_more_el.click()
+        chrome.click_element(show_more_selector)
         time.sleep(random.randint(2, 9)/10)
 
         # allow comment
         user_perm_selector = '[data-e2e="user_perm_container"] '
         allow_comment_selector = user_perm_selector + \
-            'input[type="checkbox"]:nth-child(1)'
+            '.checkbox:nth-child(1) input[type="checkbox"]'
         allow_comment = (
-            self.driver.get_element(allow_comment_selector)
-            .get_attribute("checked")
+            chrome.get_attribute(allow_comment_selector, "checked")
         ) is not None
         if params.get('allow_comment') != allow_comment:
-            allow_comment_selector = user_perm_selector + 'label:nth-child(1)'
-            allow_comment_el = self.driver.get_element(allow_comment_selector)
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView();",
-                allow_comment_el
-            )
-            allow_comment_el.click()
+            self.log('- Set allow comment')
+            allow_comment_selector = user_perm_selector + '.checkbox:nth-child(1) label'
+            chrome.scroll_into_view(allow_comment_selector)
+            chrome.click_element(allow_comment_selector)
             time.sleep(random.randint(2, 9)/10)
 
         # allow reuse
+
         allow_reuse_selector = user_perm_selector + \
-            'input[type="checkbox"]:nth-child(1)'
+            '.checkbox:nth-child(2) input[type="checkbox"]'
         allow_reuse = (
-            self.driver.get_element(allow_reuse_selector)
-            .get_attribute("checked")
+            chrome.get_attribute(allow_reuse_selector, "checked")
         ) is not None
         if params.get('allow_reuse') != allow_reuse:
-            allow_reuse_selector = user_perm_selector + 'label:nth-child(1)'
-            allow_reuse_el = self.driver.get_element(allow_reuse_selector)
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView();",
-                allow_reuse_el
-            )
-            allow_reuse_el.click()
+            self.log('- Set allow reuse')
+            allow_reuse_selector = user_perm_selector + '.checkbox:nth-child(2) label'
+            chrome.scroll_into_view(allow_reuse_selector)
+            chrome.click_element(allow_reuse_selector)
             time.sleep(random.randint(2, 9)/10)
 
         disclose_content_selector = '[data-e2e="disclose_content_container"]'
         disclose_content = (
-            self.driver.get_element(
-                disclose_content_selector + ' .Switch__root .Switch__content'
+            chrome.get_attribute(
+                disclose_content_selector + ' .Switch__root .Switch__content',
+                "data-state"
             )
-            .get_attribute("data-state")
         ) == 'checked'
         if (
             params.get('disclose_content')
@@ -636,183 +583,127 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
             params['disclose_content'] = False
 
         if params.get('disclose_content') != disclose_content:
-            disclose_content_selector += ' .Switch__root'
-            disclose_content_el = self.driver.get_element(
-                disclose_content_selector
-            )
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView();",
-                disclose_content_el
-            )
-            disclose_content_el.click()
+            self.log('- Set disclose content')
+            disclose_content_selector += ' .Switch__root input'
+            chrome.scroll_into_view(disclose_content_selector)
+            chrome.click_element(disclose_content_selector)
             time.sleep(random.randint(2, 9)/10)
             has_checked = False
             if params.get('disclose_content'):
                 brands_selector = '.options-form > div:not([data-e2e]) '
                 if params.get('your_brand'):
-                    brand_selector = brands_selector + \
-                        '.text-container:nth-child(1) label'
-                    brand_el = self.driver.get_element(brand_selector)
-                    brand_el.click()
-                    is_checked = (
-                        self.driver.get_element(brand_selector)
-                        .get_attribute("data-checked")
-                    ) == 'true'
+                    brand_selector = brands_selector + '.text-container:nth-child(1) label'
+                    chrome.click_element(brand_selector)
+                    is_checked = chrome.get_attribute(brand_selector, "data-checked") == 'true'
                     if is_checked:
                         has_checked = True
                 if params.get('branded_content'):
-                    brand_selector = brands_selector + \
-                        '.text-container:nth-child(2) label'
-                    brand_el = self.driver.get_element(brand_selector)
-                    brand_el.click()
-                    is_checked = (
-                        self.driver.get_element(brand_selector)
-                        .get_attribute("data-checked")
-                    ) == 'true'
+                    brand_selector = brands_selector + '.text-container:nth-child(2) label'
+                    chrome.click_element(brand_selector)
+                    is_checked = chrome.get_attribute(brand_selector, "data-checked") == 'true'
                     if is_checked:
                         has_checked = True
             if not has_checked:
-                disclose_content_el.click()
+                chrome.click_element(disclose_content_selector)
                 time.sleep(random.randint(2, 9)/10)
 
         aigc_selector = '[data-e2e="aigc_container"]'
         aigc = (
-            self.driver.get_element(
-                aigc_selector + ' .Switch__root .Switch__content'
+            chrome.get_attribute(
+                aigc_selector + ' .Switch__root .Switch__content',
+                "data-state"
             )
-            .get_attribute("data-state")
         ) == 'checked'
         if params.get('aigc') != aigc:
-            aigc_selector += ' .Switch__root'
-            aigc_el = self.driver.get_element(aigc_selector)
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView();",
-                aigc_el
-            )
-            aigc_el.click()
+            self.log('- Set aigc')
+            aigc_selector += ' .Switch__root input'
+            chrome.scroll_into_view(aigc_selector)
+            chrome.click_element(aigc_selector)
             time.sleep(random.randint(2, 9)/10)
-            modal_el = self.driver.get_element('.common-modal')
-            if params.get('aigc') and modal_el:
-                self.driver.get_element(
+            if params.get('aigc') and chrome.is_element_exist('.common-modal'):
+                chrome.click_element(
                     '.common-modal button[data-type="primary"]'
-                ).click()
+                )
                 time.sleep(random.randint(2, 9)/10)
 
         self.log('- Finish')
 
+    def _stage_input_check(self, params):
         self.log('Input Check')
+
+        chrome = self._get_chrome()
 
         copyright_selector = '[data-e2e="copyright_container"]'
         copyright = (
-            self.driver.get_element(
-                copyright_selector + ' .Switch__root .Switch__content'
+            chrome.get_attribute(
+                copyright_selector + ' .Switch__root .Switch__content',
+                "data-state"
             )
-            .get_attribute("data-state")
         ) == 'checked'
         if params.get('copyright') != copyright:
+            self.log('- Set copyright')
             copyright_selector += ' .Switch__root'
-            copyright_el = self.driver.get_element(copyright_selector)
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView();",
-                copyright_el
-            )
-            copyright_el.click()
+            chrome.scroll_into_view(copyright_selector)
+            chrome.click_element(copyright_selector + ' input')
             time.sleep(random.randint(2, 9)/10)
 
         content_check_selector = '.card:last-child > div > div:last-child [data-layout="switch-root"]:last-child'  # noqa
         content_check = (
-            self.driver.get_element(
-                content_check_selector + ' .Switch__content'
+            chrome.get_attribute(
+                content_check_selector + ' .Switch__content',
+                "data-state"
             )
-            .get_attribute("data-state")
         ) == 'checked'
         if params.get('content_check') != content_check:
-            content_check_el = self.driver.get_element(content_check_selector)
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView();",
-                content_check_el
-            )
-            content_check_el.click()
+            self.log('- Set content check')
+            chrome.scroll_into_view(content_check_selector)
+            chrome.click_element(content_check_selector + ' input')
             time.sleep(random.randint(2, 9)/10)
 
         self.log('- Finish')
-        # raise Exception('Test le...')
-        # self.wait_user_response()
 
+    def _stage_publish(self):
         self.log('Click Publish')
 
-        button_posting_selector = '[data-e2e="post_video_button"]'
-        button_posting_el = self.driver.get_element(button_posting_selector)
-        self.driver.execute_script(
-            "arguments[0].scrollIntoView();",
-            button_posting_el
-        )
-        button_posting_el.click()
+        chrome = self._get_chrome()
 
-        video_data = self.get_response_network_log("/project/post/v1/")
+        def click_publish():
+            button_posting_selector = '[data-e2e="post_video_button"]'
+            chrome.scroll_into_view(button_posting_selector)
+            chrome.click_element(button_posting_selector)
+            button_posting_selector = '.common-modal .TUXButton--primary'
+            if chrome.wait_element_exist(button_posting_selector, 5):
+                chrome.click_element(button_posting_selector)
+
+        video_data = chrome.capture_network_action(click_publish, ["/project/post/v1"], 30)
 
         if video_data:
             single_post_resp_list = video_data.get('single_post_resp_list', [])
             if single_post_resp_list:
-                video_url = (
-                    "https://www.tiktok.com/"
-                    f"@{account['account_username']}/"
-                    f"video/{single_post_resp_list[0].get('item_id')}"
-                )
-                self.reports['success'] += 1
-                VideoModel.update({
-                    'id': video['id'],
-                    'upload_status': 'uploaded',
-                    'uploaded_at': get_current_time(),
-                })
-                self.ws_broadcast(
-                    'edit_videos', [VideoModel.get_by_id(video['id'])]
-                )
-                self.log(f'Success, video url: {video_url}')
-            else:
-                self.reports['failed'] += 1
-                VideoModel.update({
-                    'id': video['id'],
-                    'upload_status': 'failed',
-                })
-                self.ws_broadcast(
-                    'edit_videos', [VideoModel.get_by_id(video['id'])]
-                )
-                self.log(f'Failed: {video_data.get("status_msg", "Unknow")}')
-                logger.error(f"Failed upload, res: {json.dumps(video_data)}")
-        else:
-            latest_video = self.get_latest_video(autologin)
-            if (
-                latest_video.get('item_id')
-                and latest_video.get('item_id') != latest_video_id
-            ):
-                self.reports['success'] += 1
-                VideoModel.update({
-                    'id': video['id'],
-                    'upload_status': 'uploaded',
-                    'uploaded_at': get_current_time(),
-                })
-                self.ws_broadcast(
-                    'edit_videos', [VideoModel.get_by_id(video['id'])]
-                )
-                video_url = (
-                    "https://www.tiktok.com/"
-                    f"@{account['account_username']}/"
-                    f"video/{latest_video.get('item_id')}"
-                )
-                self.log(f'Success, video url {video_url}')
-            else:
-                self.reports['failed'] += 1
-                VideoModel.update({
-                    'id': video['id'],
-                    'upload_status': 'failed',
-                })
-                self.ws_broadcast(
-                    'edit_videos', [VideoModel.get_by_id(video['id'])]
-                )
-                self.log('Failed Unknow')
+                return single_post_resp_list[0].get('item_id')
 
+            logger.error(f"Failed upload, res: {json.dumps(video_data)}")
+            raise qlobot_api.ProcessExecption(video_data.get("status_msg", "Unknow"))
+        return False
+
+    # upload orchestration
+
+    def do_upload_video(self, video, params):
+        self._mark_status(video, 'uploading')
+
+        account = self._stage_login(video)
+        video['account']['account_username'] = account['account_username']
+
+        self._stage_prepare_upload_page()
+        self._stage_upload_file(video)
+        self._stage_input_caption(video)
+        self._stage_input_showcase(account, video)
+        self._stage_input_settings(video, params)
+        self._stage_input_check(params)
         # self.wait_user_response()
+        return self._stage_publish()
+
+    # process
 
     def on_execute(self, videos, params):
         if self.dev_env:
@@ -828,48 +719,56 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
         videos_len = len(videos)
         self.reports['success'] = 0
         self.reports['failed'] = 0
-        self.reports['skiped'] = 0
         self.reports['target'] = videos_len
         self.reports['status'] = "Waiting"
 
         # update status waiting
+        bc_data = []
         for video in videos:
-            VideoModel.update({
+            self.video_status[video['id']] = 'waiting'
+            bc_data.append({
                 'id': video['id'],
                 'upload_status': 'waiting',
             })
-        video_ids = [_['id'] for _ in videos]
-        self.ws_broadcast('edit_videos', [VideoModel.gets_ids(video_ids)])
+            VideoModel.update(bc_data[-1])
+        self.ws_broadcast('edit_videos', bc_data)
 
         params['delay_start'] = params.get('delay_start', 20)
         params['delay_end'] = params.get('delay_end', 30)
 
+        self.autologin = TiktokMain(self)
+
         for _i, video in enumerate(videos):
             self.reports['status'] = f"Uploading {_i + 1}"
-            self.log(
-                f"#{_i + 1} upload video, "
-                f"username: {video['account']['username']}"
-            )
+            self.log(f"#{_i + 1} upload video, username: {video['account']['username']}")
 
             try:
-                self.do_upload_video(video, params)
-                self.log('Success Upload')
-            except Exception as e:
-                self.log('Failed Upload')
-                VideoModel.update({
-                    'id': video['id'],
-                    'upload_status': 'failed',
-                })
-                self.ws_broadcast('edit_videos', [VideoModel.get_by_id(video['id'])])
-                logger.error(
-                    f"Error upload video: {e}"
-                    f"\n---\n{traceback.format_exc()}\n---"
-                )
-                if self.dev_env:
-                    self.log(
-                        f"Error upload video: {e}"
-                        f"\n---\n{traceback.format_exc()}\n---"
+                video_id = self.do_upload_video(video, params)
+                if video_id:
+                    video_url = (
+                        "https://www.tiktok.com/"
+                        f"@{video['account']['account_username']}/video/{video_id}"
                     )
+                    self.reports['success'] += 1
+                    self._mark_status(video, 'uploaded', {
+                        'uploaded_at': get_current_time()
+                    })
+                    self.log(f'Success Upload, video url: {video_url}')
+                else:
+                    self.reports['failed'] += 1
+                    self._mark_status(video, 'failed')
+                    self.log('Failed Upload: Unknow')
+            except qlobot_api.ProcessExecption as e:
+                self.reports['failed'] += 1
+                self._mark_status(video, 'failed')
+                self.log(f'Failed Upload: {e}')
+            except Exception as e:
+                self.reports['failed'] += 1
+                self._mark_status(video, 'failed')
+                self.log('Failed Upload: Terjadi kesalahan')
+                logger.error(f"Error upload video: {e}\n---\n{traceback.format_exc()}\n---")
+                if self.dev_env:
+                    self.log(f"Error upload video: {e}\n---\n{traceback.format_exc()}\n---")
 
             delay = random.randint(params['delay_start'], params['delay_end'])
             if videos_len < _i + 1:
@@ -879,26 +778,60 @@ class UploadVideoProcess(qlobot_api.ProcessItem):
 
         self.reports['status'] = "Finish"
 
+    def stop(self):
+        for video_id, status in self.video_status.items():
+            if status in ['failed', 'uploaded']:
+                continue
+            self._mark_status({'id': video_id}, 'cancel')
+
+        super().stop()
+
+    def _close_driver(self):
+        if not self.driver:
+            return
+        try:
+            self.driver.close()
+        except Exception:
+            pass
+        self.driver = None
+
+    def _close_chrome(self):
+        if not self.chrome:
+            return
+        try:
+            self.chrome.close()
+        except Exception:
+            pass
+        self.chrome = None
+
+        for _ in range(0, 20):
+            if not self.user_data_dir or not os.path.exists(self.user_data_dir):
+                break
+            try:
+                shutil.rmtree(self.user_data_dir, ignore_errors=True)
+            except Exception:
+                pass
+
     def on_stoped(self):
-        self.close_driver()
         self.log("Process stoped.")
         self.reports['status'] = "Stoped"
+        self._close_driver()
+        self._close_chrome()
 
     def on_execute_except(self, exc):
-        self.close_driver()
+        self._close_driver()
+        self._close_chrome()
         self.log(f"Gagal {self.name}")
         logger.error(f"Gagal {self.name}:{exc}\n---\n{exc.exc_info}\n---")
         if self.dev_env:
             self.log(f"Gagal {self.name}:{exc}\n---\n{exc.exc_info}\n---")
 
     def on_execute_finish(self):
-        self.close_driver()
+        self._close_driver()
+        self._close_chrome()
         self.log("Process has finish.")
         self.log(
-            "Reports: "
-            f"{self.reports['success']} Success, "
-            f"{self.reports['skiped']} Skiped, "
-            f"{self.reports['failed']} Failed"
+            f"Reports: {self.reports['success']} Success, {self.reports['failed']} Failed"
         )
 
 
@@ -1073,7 +1006,7 @@ class AutoLoginProccess(qlobot_api.ProcessItem):
 
     driver = None
 
-    def close_driver(self):
+    def _close_driver(self):
         if self.driver:
             self.driver.close()
             self.driver = None
@@ -1138,14 +1071,14 @@ class AutoLoginProccess(qlobot_api.ProcessItem):
             )
 
     def on_execute_except(self, exc):
-        self.close_driver()
+        self._close_driver()
         self.log(f"Gagal {self.name}")
         logger.error(f"Gagal {self.name}:{exc}\n---\n{exc.exc_info}\n---")
         if self.dev_env:
             self.log(f"Gagal {self.name}:{exc}\n---\n{exc.exc_info}\n---")
 
     def on_execute_finish(self):
-        self.close_driver()
+        self._close_driver()
         self.reports = {**{'success': 0, 'failed': 0}, **self.reports}
         finish_message = "Proses Auto Login telah selesai."
         reports_message = (

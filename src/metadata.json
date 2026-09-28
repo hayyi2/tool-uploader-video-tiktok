@@ -2,8 +2,8 @@
     "id": "uploader_video_tiktok",
     "name": "Uploader Video Tiktok",
     "description": "Uploader Video Tiktok Affiliate",
-    "!version": "0.1b6",
-    "version": "0.1a6",
+    "version": "0.1b7",
+    "!version": "0.1a7",
     "author": "Qlobot Dev Team",
     "_dev_settings": {
         "auto_reload": true
