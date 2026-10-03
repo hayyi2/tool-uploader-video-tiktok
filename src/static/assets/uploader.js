@@ -419,6 +419,14 @@ app.controller("UvtUploaderCtrl", function ($stateParams, $state, $scope, $mdDia
             scope: $scope,
         });
     };
+    $scope.can_add_showcase = (product) => {
+        return product.product_can_added && product.product_stock > 0;
+    };
+    $scope.check_showcase = (product) => {
+        if ($scope.can_add_showcase(product)) {
+            product.checked = !product.checked
+        }
+    };
     $scope.save_showcase = () => {
         let pid = $scope.current_project.id;
         const showcase_ids = Object.values($scope.selected_account.showcases).filter(i => i.checked).map(i => i.id);

@@ -88,15 +88,15 @@
                 </thead>
                 <tbody md-body class="selectable">
                     <tr md-row
-                        ng-repeat="item in values(selected_account.showcases) | filter:{product_can_added: 1, product_stock: '!0'} | filter:search_showcase"
-                        ng-class="{'md-row-checked' : item.checked}" style="cursor: pointer;">
-                        <td md-cell ng-click="item.checked = !item.checked">
+                        ng-repeat="item in values(selected_account.showcases) | filter:search_showcase"
+                        ng-class="{'md-row-checked' : item.checked, 'text-muted': !can_add_showcase(item)}" style="cursor: pointer;">
+                        <td md-cell ng-click="check_showcase(item)">
                             <md-icon class="md-small ng-binding material-icons"
                                 ng-class="{'text-primary': item.checked}">
                                 {{!item.checked ? 'check_box_outline_blank' : 'check_box'}}
                             </md-icon>
                         </td>
-                        <td md-cell ng-click="item.checked = !item.checked">
+                        <td md-cell ng-click="check_showcase(item)">
                             <div layout="row">
                                 <div class="space-rh">
                                     <img ng-src="{{item.product_thumb}}" img-fallback="item.product_thumb" alt=""
@@ -113,16 +113,16 @@
                                 </div>
                             </div>
                         </td>
-                        <td md-cell ng-click="item.checked = !item.checked">
+                        <td md-cell ng-click="check_showcase(item)">
                             {{ item.product_id }}
                         </td>
-                        <td md-cell ng-click="item.checked = !item.checked">
+                        <td md-cell ng-click="check_showcase(item)">
                             {{ item.product_price| currency:'Rp ':0 }}
                         </td>
-                        <td md-cell ng-click="item.checked = !item.checked">
+                        <td md-cell ng-click="check_showcase(item)">
                             {{ item.product_stock }}
                         </td>
-                        <td md-cell ng-click="item.checked = !item.checked">
+                        <td md-cell ng-click="check_showcase(item)">
                             {{ item.product_commission| currency:'Rp ':0 }}
                         </td>
                         <td md-cell>
